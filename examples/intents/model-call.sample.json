@@ -1,0 +1,13 @@
+{
+  "type": "model_call",
+  "model": "local-qwen-coder",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Summarize the runtime capabilities."
+    }
+  ],
+  "maxTokens": 512,
+  "temperature": 0,
+  "stream": false
+}

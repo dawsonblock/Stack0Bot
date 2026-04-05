@@ -1,0 +1,15 @@
+{
+  "name": "agent-stack-run-api",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.js",
+    "clean": "tsc -b --clean"
+  },
+  "dependencies": {
+    "@agent-stack/agent-kernel": "file:../../packages/agent-kernel"
+  }
+}

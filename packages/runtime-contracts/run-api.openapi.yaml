@@ -1,0 +1,50 @@
+
+openapi: 3.1.0
+info:
+  title: Agent Stack Run API
+  version: 0.5.0
+paths:
+  /healthz:
+    get:
+      summary: Run API health
+  /v1/runs:
+    get:
+      summary: List runs
+    post:
+      summary: Create a bounded run
+  /v1/runs/{runId}:
+    get:
+      summary: Get run snapshot
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+  /v1/runs/{runId}/events:
+    get:
+      summary: Get run events
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+  /v1/runs/{runId}/artifacts:
+    get:
+      summary: Get run artifacts
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+  /v1/runs/{runId}/approve:
+    post:
+      summary: Record approval for a validated run
+  /v1/runs/{runId}/reject:
+    post:
+      summary: Reject a validated run
+  /v1/runs/{runId}/apply:
+    post:
+      summary: Apply an approved patch artifact
+  /v1/runs/{runId}/complete:
+    post:
+      summary: Complete an applied run

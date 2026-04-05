@@ -1,0 +1,22 @@
+{
+  "default_action": "deny",
+  "allowed_models": [
+    "local-qwen-coder",
+    "local-llama-dev",
+    "local-gemma"
+  ],
+  "aliases": {
+    "qwen": "local-qwen-coder",
+    "llama": "local-llama-dev",
+    "gemma": "local-gemma"
+  },
+  "fallbacks": {
+    "default": "local-qwen-coder"
+  },
+  "max_tokens_by_model": {
+    "local-qwen-coder": 4096,
+    "local-llama-dev": 4096,
+    "local-gemma": 2048
+  },
+  "deny_reason": "model not allowed by gateway policy"
+}

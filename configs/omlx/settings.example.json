@@ -1,0 +1,7 @@
+{
+  "model_dir": "~/models",
+  "port": 8000,
+  "memory_limit_bytes": null,
+  "default_max_batch_size": 8,
+  "notes": "Copy into ~/.omlx/settings.json or use equivalent CLI flags. Tune for your Mac and model set."
+}

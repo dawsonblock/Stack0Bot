@@ -1,0 +1,13 @@
+{
+  "type": "edit_files",
+  "reason": "Propose a bounded README change",
+  "declaredWriteSet": [
+    "README.md"
+  ],
+  "edits": [
+    {
+      "path": "README.md",
+      "content": "# Example change\n"
+    }
+  ]
+}

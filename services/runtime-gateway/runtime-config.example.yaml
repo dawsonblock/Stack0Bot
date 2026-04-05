@@ -1,0 +1,21 @@
+server:
+  host: 127.0.0.1
+  port: 8787
+runtime:
+  omlx_base_url: http://127.0.0.1:8000
+  timeout_seconds: 180
+security:
+  bearer_token: ""
+  allowed_models:
+    - local-qwen-coder
+    - local-llama-general
+capabilities:
+  text: true
+  vision: false
+  embeddings: true
+  rerank: true
+  anthropic_messages: true
+  openai_chat_completions: true
+  openai_completions: true
+  structured_output: true
+  tool_calling: true

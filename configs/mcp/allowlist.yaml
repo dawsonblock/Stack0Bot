@@ -1,0 +1,23 @@
+defaultAction: deny
+approvedServers:
+  - name: github
+    category: read_only
+    source: official
+    purpose: repository inspection and issue lookup
+    requiresReview: false
+    requiresReceipts: false
+    enabled: true
+  - name: firecrawl
+    category: research
+    source: official
+    purpose: web research and scraping
+    requiresReview: false
+    requiresReceipts: false
+    enabled: true
+  - name: signet
+    category: read_only
+    source: official
+    purpose: cryptographic receipts for agent actions
+    requiresReview: false
+    requiresReceipts: false
+    enabled: true

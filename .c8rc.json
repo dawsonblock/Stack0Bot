@@ -1,0 +1,19 @@
+{
+  "report-dir": "coverage",
+  "reporter": [
+    "text",
+    "lcov"
+  ],
+  "exclude": [
+    "coverage/**",
+    "dist/**",
+    "storage/**",
+    "vendor/**",
+    "references/**",
+    "services/runtime-gateway/**",
+    "tests/**",
+    "**/tests/**",
+    "**/*.test.*",
+    "scripts/**"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/runtime-capabilities.schema.json",
+  "title": "RuntimeCapabilities",
+  "type": "object",
+  "required": ["runtime", "gateway", "capabilities"],
+  "properties": {
+    "runtime": {"type": "string"},
+    "gateway": {"type": "string"},
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "text": {"type": "boolean"},
+        "vision": {"type": "boolean"},
+        "embeddings": {"type": "boolean"},
+        "rerank": {"type": "boolean"},
+        "anthropic_messages": {"type": "boolean"},
+        "openai_chat_completions": {"type": "boolean"},
+        "openai_completions": {"type": "boolean"},
+        "structured_output": {"type": "boolean"},
+        "tool_calling": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

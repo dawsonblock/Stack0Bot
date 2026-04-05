@@ -1,0 +1,25 @@
+.DS_Store
+
+# Node and TypeScript build artifacts
+node_modules/
+coverage/
+dist/
+*.tsbuildinfo
+
+# Python caches and virtual environments
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.venv/
+services/runtime-gateway/.venv/
+vendor/omlx-main/.venv/
+
+# Local runtime state
+storage/logs/
+storage/runs/
+workspace/
+
+# Local config and tool state
+services/runtime-gateway/runtime-config.yaml
+.qodo/

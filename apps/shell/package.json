@@ -1,0 +1,9 @@
+{
+  "name": "agent-stack-shell-tools",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agent-stack-shell": "./bin/agent-stack-shell.mjs",
+    "agent-stack-run": "./bin/agent-stack-run.mjs"
+  }
+}

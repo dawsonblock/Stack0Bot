@@ -1,0 +1,11 @@
+{
+  "connect_timeout_seconds": 10,
+  "request_timeout_seconds": 120,
+  "stream_idle_timeout_seconds": 30,
+  "max_tokens_default": 2048,
+  "max_tokens_absolute": 8192,
+  "endpoint_caps": {
+    "/v1/chat/completions": 4096,
+    "/v1/messages": 4096
+  }
+}

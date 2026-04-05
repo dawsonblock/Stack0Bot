@@ -1,0 +1,55 @@
+openapi: 3.1.0
+info:
+  title: Runtime Gateway API
+  version: 0.1.0
+servers:
+  - url: http://127.0.0.1:8787
+paths:
+  /healthz:
+    get:
+      summary: Gateway and upstream health
+      responses:
+        '200':
+          description: Upstream reachable
+  /v1/capabilities:
+    get:
+      summary: Runtime capability manifest
+      responses:
+        '200':
+          description: Capability payload
+  /v1/models:
+    get:
+      summary: List models exposed by oMLX
+      responses:
+        '200':
+          description: Model list
+  /v1/chat/completions:
+    post:
+      summary: Proxy OpenAI chat completions to oMLX
+      responses:
+        '200':
+          description: Completion response
+  /v1/completions:
+    post:
+      summary: Proxy OpenAI completions to oMLX
+      responses:
+        '200':
+          description: Completion response
+  /v1/messages:
+    post:
+      summary: Proxy Anthropic Messages API to oMLX
+      responses:
+        '200':
+          description: Message response
+  /v1/embeddings:
+    post:
+      summary: Proxy embeddings to oMLX
+      responses:
+        '200':
+          description: Embedding response
+  /v1/rerank:
+    post:
+      summary: Proxy reranking requests to oMLX
+      responses:
+        '200':
+          description: Rerank response
