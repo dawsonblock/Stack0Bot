@@ -164,7 +164,15 @@ test('run-api classifies missing and conflicting lifecycle operations clearly', 
         body: JSON.stringify({}),
       });
       assert.equal(badRequest.status, 400);
-      assert.equal(badRequest.body.error, 'bad_request');
+      assert.equal(badRequest.body.error, 'missing_intent');
+
+      const invalidJson = await requestJson(listener.baseUrl, '/v1/runs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{',
+      });
+      assert.equal(invalidJson.status, 400);
+      assert.equal(invalidJson.body.error, 'invalid_json');
 
       await requestJson(listener.baseUrl, '/v1/runs', {
         method: 'POST',
@@ -185,7 +193,7 @@ test('run-api classifies missing and conflicting lifecycle operations clearly', 
         body: JSON.stringify({ intent: buildRunCommandIntent('api-run-command', 'node -e "process.stdout.write(1)"') }),
       });
       assert.equal(invalidRunCommand.status, 400);
-      assert.equal(invalidRunCommand.body.error, 'bad_request');
+      assert.equal(invalidRunCommand.body.error, 'invalid_intent');
       assert.match(invalidRunCommand.body.message, /not part of the supported runtime/i);
     } finally {
       await listener.close();

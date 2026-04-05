@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { LocalRunApi, isRunOperationError, type Intent } from '@agent-stack/agent-kernel';
+import { LocalRunApi, RunBadRequestError, isRunOperationError, type Intent } from '@agent-stack/agent-kernel';
 
 export type RunApiServerOptions = {
   baseDir: string;
@@ -43,16 +43,12 @@ async function readJson(req: IncomingMessage): Promise<any> {
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
-    throw new Error('request body must be valid JSON');
+    throw new RunBadRequestError('invalid_json', 'request body must be valid JSON');
   }
 }
 
 function notFound(res: ServerResponse) {
   sendJson(res, 404, { error: 'not_found' });
-}
-
-function badRequest(res: ServerResponse, message: string) {
-  sendJson(res, 400, { error: 'bad_request', message });
 }
 
 function classifyError(error: unknown): { status: number; code: string; message: string } {
@@ -61,30 +57,6 @@ function classifyError(error: unknown): { status: number; code: string; message:
   }
 
   const message = error instanceof Error ? error.message : String(error);
-  if (message.startsWith('run not found:')) {
-    return { status: 404, code: 'not_found', message };
-  }
-  if (
-    message.includes('is not approved')
-    || message.includes('is not applied')
-    || message.includes('is not awaiting approval')
-    || message.includes('precondition failed for')
-  ) {
-    return { status: 409, code: 'conflict', message };
-  }
-  if (
-    message.includes('request body must include an intent object')
-    || message.includes('request body must be valid JSON')
-    || message.includes('unknown intent type')
-    || message.includes('run_command is not part of the supported runtime')
-    || message.includes('unsafe ')
-    || message.includes('is required')
-    || message.includes('must not be empty')
-    || message.includes('too many ')
-    || message.includes('maxTokens must be between')
-  ) {
-    return { status: 400, code: 'bad_request', message };
-  }
   return { status: 500, code: 'run_api_error', message };
 }
 
@@ -95,17 +67,18 @@ function runRoute(pathname: string) {
 }
 
 function buildIntent(input: any, defaultActor: string): Intent {
-  const intent = input?.intent ?? input;
-  if (!intent || typeof intent !== 'object') {
-    throw new Error('request body must include an intent object');
+  const candidate = input && typeof input === 'object' && 'intent' in input ? input.intent : input;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) || typeof (candidate as { type?: unknown }).type !== 'string') {
+    throw new RunBadRequestError('missing_intent', 'request body must include an intent object');
   }
+  const intent = candidate as Partial<Intent> & Record<string, unknown>;
   const now = new Date().toISOString();
   return {
-    requestedBy: intent.requestedBy || defaultActor,
-    createdAt: intent.createdAt || now,
-    runId: intent.runId || randomUUID(),
-    intentId: intent.intentId || randomUUID(),
     ...intent,
+    requestedBy: typeof intent.requestedBy === 'string' && intent.requestedBy.trim() ? intent.requestedBy : defaultActor,
+    createdAt: typeof intent.createdAt === 'string' && intent.createdAt.trim() ? intent.createdAt : now,
+    runId: typeof intent.runId === 'string' && intent.runId.trim() ? intent.runId : randomUUID(),
+    intentId: typeof intent.intentId === 'string' && intent.intentId.trim() ? intent.intentId : randomUUID(),
   } as Intent;
 }
 

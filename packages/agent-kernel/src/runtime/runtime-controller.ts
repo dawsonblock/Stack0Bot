@@ -9,7 +9,7 @@ import { buildRunSummary } from '../artifacts/run-summary.js';
 import { applyPatchArtifact } from '../apply/apply-artifact.js';
 import { EventLog } from '../events/event-log.js';
 import { replayRun } from '../events/replay.js';
-import { RunConflictError, RunCorruptionError, RunNotFoundError } from '../errors/run-errors.js';
+import { RunBadRequestError, RunConflictError, RunCorruptionError, RunNotFoundError } from '../errors/run-errors.js';
 import { IntentDispatcher } from '../intents/intent-dispatcher.js';
 import type { Intent, IntentResult, ExecutionContext, ValidationOverride, EditFilesIntent } from '../intents/intent.types.js';
 import { validateIntent } from '../intents/intent-validator.js';
@@ -329,7 +329,12 @@ export class RuntimeController {
   }
 
   async startRun(intent: Intent): Promise<RunRecord> {
-    const validatedIntent = validateIntent(intent);
+    let validatedIntent: Intent;
+    try {
+      validatedIntent = validateIntent(intent);
+    } catch (error) {
+      throw new RunBadRequestError('invalid_intent', error instanceof Error ? error.message : 'invalid intent');
+    }
     return this.withRunLock(validatedIntent.runId, async () => {
       const existing = await this.getRun(validatedIntent.runId);
       if (existing) {

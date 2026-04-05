@@ -31,9 +31,10 @@ Mutating runs validate against a staged post-patch worktree, fail closed when no
 
 ## Error behavior
 
-- `400` for invalid request bodies or invalid intents
+- `400` for structured request and intent validation errors such as `missing_intent`, `invalid_json`, and `invalid_intent`
 - `404` for missing runs
 - `409` for illegal lifecycle transitions or patch precondition drift during apply
+- `500` for persistence corruption or unexpected internal failures
 
 ## Supported local workflow
 

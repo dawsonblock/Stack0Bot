@@ -20,7 +20,8 @@ export type SandboxCapabilityReport = {
   filesystemScoped: boolean;
   networkIsolated: boolean;
   networkIsolationSupported: boolean;
-  networkIsolationEffective: 'allow' | 'deny' | 'degraded';
+  networkIsolationEnforced: boolean;
+  networkAccessActual: 'allow' | 'deny' | 'degraded';
   timeoutEnforced: boolean;
   allowlistEnforced: boolean;
   mode: 'isolated' | 'restricted';
@@ -188,9 +189,10 @@ export async function runInSandbox(command: string | SandboxCommandSpec, cwd: st
   const network = evaluateNetworkPolicy(policy.allowNetwork ? 'allow' : 'deny');
   const capability: SandboxCapabilityReport = {
     filesystemScoped: true,
-    networkIsolated: network.effective === 'deny',
+    networkIsolated: network.actual === 'deny',
     networkIsolationSupported: network.supported,
-    networkIsolationEffective: network.effective,
+    networkIsolationEnforced: network.enforced,
+    networkAccessActual: network.actual,
     timeoutEnforced: true,
     allowlistEnforced: Boolean(policy.allowedCommands?.length),
     mode: network.mode,

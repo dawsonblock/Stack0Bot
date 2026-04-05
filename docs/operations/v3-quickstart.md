@@ -2,6 +2,12 @@
 
 The supported V3 local workflow now runs from the repository root.
 
+## Prerequisites
+
+- Node.js and npm
+- Python 3 with venv support. The live setup path in this repo has been exercised with Python 3.11.
+- A local oMLX model directory exposed through `OMLX_MODEL_DIR`
+
 ## Offline verification
 
 ```bash
@@ -27,6 +33,8 @@ npm run smoke
 ```
 
 If the stack is already running, `npm run verify:live` runs the offline verification sweep and then the live smoke path in one command.
+
+`npm run verify:live` is environment-dependent: it requires a configured local model directory plus the running local stack.
 
 ## Bounded shell calls
 

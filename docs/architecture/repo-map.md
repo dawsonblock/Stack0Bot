@@ -9,6 +9,7 @@
 
 ## Source integrations kept out of the core build path
 
+- `packages/tool-registry` – supporting MCP allowlist/policy material kept outside the supported root workspace and verification surface.
 - `vendor/gsd-2-main` – vendored shell and workflow source kept for reference and integration work, not as the kernel.
 - `vendor/omlx-main` – upstream runtime helper used by local setup and smoke scripts, not part of the supported product surface.
 - `configs/*`, `patches/*`, and `examples/*` – supporting configuration, samples, and patch material.

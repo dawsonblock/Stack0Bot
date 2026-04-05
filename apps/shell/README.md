@@ -1,13 +1,15 @@
 
 # Shell App Notes
 
-The preferred shell remains the vendored GSD repo or an installed `gsd-pi` binary configured through `~/.gsd/agent/models.json`.
+`apps/shell` is the supported local operator surface for this repository.
 
-V5 adds a real local operator surface above the bounded kernel:
+It stays intentionally thin above the bounded kernel path:
 
 - runtime inspection through `agent-stack-shell`
 - run lifecycle control through `agent-stack-run`
 - a local Run API in `services/run-api`
+
+The vendored GSD sources are reference and integration material only. They are not the supported shell for this repo.
 
 ## Companion CLIs
 
@@ -35,6 +37,6 @@ node apps/shell/bin/agent-stack-run.mjs complete <runId> "done"
 
 ## Scope
 
-This is still a source-level integration stack. The shell is an operator surface only. The canonical execution path is:
+This is still a bounded local control stack. The shell is an operator surface only. The canonical execution path is:
 
 shell → run-api → agent-kernel → runtime-gateway → oMLX

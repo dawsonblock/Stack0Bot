@@ -25,17 +25,19 @@ The live scripts currently point this service at oMLX, but that upstream process
 
 ## Shell integration
 
-The v2 combined stack includes a GSD-side `/gsd runtime` command family that reads from:
+The supported local shell reads from:
 
 - `GSD_RUNTIME_GATEWAY_URL`
 - `GSD_RUNTIME_GATEWAY_BEARER`
 
-That lets the shell show:
+That lets `apps/shell/bin/agent-stack-shell.mjs` show:
 
 - gateway health
 - upstream oMLX reachability
 - capability flags
 - model visibility
+
+The vendored GSD sources are not the supported shell surface for this repository.
 
 ## Run locally
 

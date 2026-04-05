@@ -5,7 +5,7 @@ The supported local workflow now runs from the repository root.
 ## Prerequisites
 
 - Node.js and npm
-- Python 3
+- Python 3 with venv support. The live setup path in this repo has been exercised with Python 3.11.
 - A local oMLX model directory exposed through `OMLX_MODEL_DIR`
 
 ## Setup and start
@@ -35,6 +35,8 @@ npm run smoke
 `npm run smoke` drives the canonical operator path through the shell CLI, creates a read-only run, proposes a mutating run, validates it with real commands, records approval, applies the patch into a per-run worktree, completes the run, and verifies the resulting artifacts.
 
 If the stack is already running and you want one command that includes the live smoke step, use `npm run verify:live`.
+
+`npm run verify:live` is environment-dependent: it requires a configured local model directory plus the running oMLX, runtime-gateway, and run-api stack.
 
 `npm run test:coverage` writes Node/TS core-path coverage reports to `coverage/`. It does not measure the Python runtime-gateway files.
 

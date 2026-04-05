@@ -58,7 +58,8 @@ test('runInSandbox reports degraded network support honestly when host enforceme
     assert.equal(result.ok, true);
     assert.equal(result.stdout, 'ok');
     assert.equal(result.capability.networkIsolationSupported, false);
-    assert.equal(result.capability.networkIsolationEffective, 'degraded');
+    assert.equal(result.capability.networkIsolationEnforced, false);
+    assert.equal(result.capability.networkAccessActual, 'degraded');
     assert.equal(result.capability.networkIsolated, false);
   });
 });

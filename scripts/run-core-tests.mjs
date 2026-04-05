@@ -25,7 +25,13 @@ async function exists(path) {
   }
 }
 
-await run('node', ['--import', 'tsx', '--test', 'packages/**/*.test.ts', 'services/**/*.test.ts']);
+const nodeTestGlobs = [
+  'packages/agent-kernel/tests/*.test.ts',
+  'services/run-api/tests/*.test.ts',
+  'services/sandbox/tests/*.test.ts',
+];
+
+await run('node', ['--import', 'tsx', '--test', ...nodeTestGlobs]);
 if (await exists('services/runtime-gateway/tests')) {
   await run('python3', ['-m', 'unittest', 'discover', '-s', 'services/runtime-gateway/tests', '-p', 'test_*.py']);
 }

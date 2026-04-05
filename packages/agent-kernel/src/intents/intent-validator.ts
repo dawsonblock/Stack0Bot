@@ -12,8 +12,15 @@ function ensureKnownType(value: string): void {
   }
 }
 
-function isSafeRelativePath(input: string): boolean {
-  if (!input || input.trim() === '') return false;
+function requireNonEmptyString(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`${fieldName} is required`);
+  }
+  return value;
+}
+
+function isSafeRelativePath(input: unknown): input is string {
+  if (typeof input !== 'string' || input.trim() === '') return false;
   if (input.startsWith('/') || input.startsWith('\\')) return false;
   if (input.includes('..')) return false;
   return true;
@@ -38,13 +45,11 @@ function validateValidationOverride(override: ValidationOverride | undefined): v
     throw new Error('validationOverride.allowMissingExecutableValidators must be true when override is provided');
   }
 
-  if (!override.reason.trim()) {
-    throw new Error('validationOverride.reason is required when override is provided');
-  }
+  requireNonEmptyString(override.reason, 'validationOverride.reason');
 }
 
 function validateEditIntent(intent: EditFilesIntent): void {
-  if (!intent.reason.trim()) throw new Error('edit_files.reason is required');
+  requireNonEmptyString(intent.reason, 'edit_files.reason');
   if (!Array.isArray(intent.declaredWriteSet) || intent.declaredWriteSet.length === 0) {
     throw new Error('edit_files.declaredWriteSet is required');
   }
@@ -53,6 +58,7 @@ function validateEditIntent(intent: EditFilesIntent): void {
   let totalBytes = 0;
   const declared = new Set(intent.declaredWriteSet);
   for (const edit of intent.edits) {
+    if (typeof edit.content !== 'string') throw new Error(`edit content must be a utf8 string: ${edit.path}`);
     if (!isSafeRelativePath(edit.path)) throw new Error(`unsafe edit path: ${edit.path}`);
     if (!declared.has(edit.path)) throw new Error(`edit path not declared in write set: ${edit.path}`);
     totalBytes += Buffer.byteLength(edit.content, 'utf8');
@@ -63,7 +69,7 @@ function validateEditIntent(intent: EditFilesIntent): void {
 }
 
 function validateModelIntent(intent: ModelCallIntent): void {
-  if (!intent.model.trim()) throw new Error('model_call.model is required');
+  requireNonEmptyString(intent.model, 'model_call.model');
   if (!Array.isArray(intent.messages) || intent.messages.length === 0) throw new Error('model_call.messages must not be empty');
   if (intent.messages.length > MAX_MODEL_MESSAGES) throw new Error(`too many model messages; max ${MAX_MODEL_MESSAGES}`);
   const bounded = intent.maxTokens ?? 2048;
@@ -71,21 +77,22 @@ function validateModelIntent(intent: ModelCallIntent): void {
 }
 
 function validateRunCommandIntent(intent: Extract<Intent, { type: 'run_command' }>): void {
-  if (!intent.command.trim()) throw new Error('run_command.command is required');
+  requireNonEmptyString(intent.command, 'run_command.command');
   throw new Error('run_command is not part of the supported runtime');
 }
 
 export function validateIntent(intent: Intent): Intent {
+  requireNonEmptyString(intent.type, 'intent.type');
   ensureKnownType(intent.type);
   const normalized = normalizeBaseFields(intent);
-  if (!normalized.runId.trim()) throw new Error('runId is required');
+  requireNonEmptyString(normalized.runId, 'runId');
 
   switch (normalized.type) {
     case 'read_file':
       if (!isSafeRelativePath(normalized.path)) throw new Error(`unsafe read path: ${normalized.path}`);
       return normalized;
     case 'search_code':
-      if (!normalized.query.trim()) throw new Error('search_code.query is required');
+      requireNonEmptyString(normalized.query, 'search_code.query');
       if (normalized.cwd && !isSafeRelativePath(normalized.cwd) && normalized.cwd !== '.') throw new Error(`unsafe cwd: ${normalized.cwd}`);
       return { ...normalized, cwd: normalized.cwd ?? '.', limit: Math.max(1, Math.min(normalized.limit ?? 50, 200)) };
     case 'run_command':
@@ -99,10 +106,10 @@ export function validateIntent(intent: Intent): Intent {
       validateModelIntent(normalized);
       return { ...normalized, maxTokens: Math.min(normalized.maxTokens ?? 2048, MAX_MODEL_TOKENS) };
     case 'ask_user':
-      if (!normalized.prompt.trim()) throw new Error('ask_user.prompt is required');
+      requireNonEmptyString(normalized.prompt, 'ask_user.prompt');
       return normalized;
     case 'finalize':
-      if (!normalized.summary.trim()) throw new Error('finalize.summary is required');
+      requireNonEmptyString(normalized.summary, 'finalize.summary');
       return { ...normalized, policy: { approvalRequired: true, ...(normalized.policy ?? {}) } };
   }
 }
