@@ -1,5 +1,6 @@
 import { mkdir, appendFile, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { RunCorruptionError } from '../errors/run-errors.js';
 import type { AgentEvent, AgentEventType } from './event-types.js';
 
 export const EVENT_SCHEMA_VERSION = 1 as const;
@@ -30,9 +31,21 @@ export class EventLog {
   async readAll(runId: string): Promise<AgentEvent[]> {
     try {
       const raw = await readFile(this.pathFor(runId), 'utf8');
-      return raw.split('\n').filter(Boolean).map((line) => JSON.parse(line) as AgentEvent);
-    } catch {
-      return [];
+      return raw
+        .split('\n')
+        .filter(Boolean)
+        .map((line, index) => {
+          try {
+            return JSON.parse(line) as AgentEvent;
+          } catch {
+            throw new RunCorruptionError('event_log_corrupt', `corrupt event log for run ${runId} at line ${index + 1}`);
+          }
+        });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+        return [];
+      }
+      throw error;
     }
   }
 

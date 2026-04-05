@@ -27,6 +27,12 @@ export class RunConflictError extends RunOperationError {
   }
 }
 
+export class RunCorruptionError extends RunOperationError {
+  constructor(code: string, message: string) {
+    super(code, message, 500);
+  }
+}
+
 export function isRunOperationError(error: unknown): error is RunOperationError {
   return error instanceof RunOperationError;
 }

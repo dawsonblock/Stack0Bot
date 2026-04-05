@@ -5,7 +5,6 @@ import type { ArtifactStore } from '../artifacts/artifact-store.js';
 import { buildPatchArtifact } from '../artifacts/patch-artifact.js';
 import type { EventLog } from '../events/event-log.js';
 import type { Intent, IntentResult, ExecutionContext, EditFilesIntent, ModelCallIntent } from '../intents/intent.types.js';
-import { READONLY_RUN_COMMAND_ALLOWLIST } from '../intents/intent-validator.js';
 import { runInSandbox, type SandboxCommandSpec } from '@agent-stack/sandbox';
 
 export type RuntimeGatewayConfig = {
@@ -128,34 +127,16 @@ export class ExecutionAuthority {
         return { ok: result.ok, intentType: intent.type, data: result, artifactIds: [artifact.id], artifactPaths: [artifact.path], error: result.ok ? undefined : result.stderr || 'search failed' };
       }
       case 'run_command': {
-        const result = await runInSandbox(intent.command, intent.cwd || '.', {
-          worktreeDir: this.ctx.worktreeDir,
-          allowNetwork: false,
-          timeoutMs: intent.timeoutMs ?? 60_000,
-          allowedCommands: [...READONLY_RUN_COMMAND_ALLOWLIST],
-          maxStdoutBytes: 128 * 1024,
-          maxStderrBytes: 64 * 1024,
-        });
-        await this.eventLog.append(intent.runId, { type: 'sandbox_capability_report', capability: result.capability, policyDecision: result.policyDecision });
-        const artifact = await this.artifacts.writeJson(intent.runId, 'command-output', result, {
-          command: result.invocation.command,
-          args: result.invocation.args,
-          intentId: intent.intentId,
-          cwd: result.invocation.cwd,
-          executionPolicy: 'readonly-allowlist',
-        });
-        await this.eventLog.append(intent.runId, {
-          type: 'command_executed',
-          intentId: intent.intentId,
-          command: result.invocation.command,
-          args: result.invocation.args,
-          cwd: result.invocation.cwd,
-          exitCode: result.exitCode,
-          timedOut: result.timedOut,
-          durationMs: result.durationMs,
-        });
-        await this.eventLog.append(intent.runId, { type: 'artifact_written', artifactId: artifact.id, artifactKind: artifact.kind, intentId: intent.intentId });
-        return { ok: result.ok, intentType: intent.type, data: result, artifactIds: [artifact.id], artifactPaths: [artifact.path], error: result.ok ? undefined : result.stderr || 'command failed' };
+        return {
+          ok: false,
+          intentType: intent.type,
+          error: 'run_command is not part of the supported runtime',
+          errorDetail: {
+            code: 'policy_violation',
+            message: 'run_command is not part of the supported runtime',
+            retriable: false,
+          },
+        };
       }
       case 'edit_files': {
         const beforeContent: Record<string, string | null> = {};

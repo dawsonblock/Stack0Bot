@@ -52,5 +52,5 @@ The supported shell is the thin operator surface in `apps/shell`. Live verificat
 - Validation fails closed when no executable validation path exists, unless an explicit override is recorded.
 - Approval remains explicit and recorded before apply.
 - Patch apply writes into `workspace/run-<runId>/`, not into the repository root.
-- `run_command` remains a bounded read-only intent with a fixed executable allowlist; the shell CLI does not expose it as a first-class operator command.
+- `run_command` is not part of the supported runtime path and is rejected if requested.
 - Finalization writes summary artifacts only and does not mutate code.

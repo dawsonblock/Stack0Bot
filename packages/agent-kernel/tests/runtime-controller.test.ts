@@ -176,3 +176,93 @@ test('mutating runs can record an explicit override for missing executable valid
     assert.equal(replay.reviewBundleArtifactIds.length, 1);
   });
 });
+
+test('getRun reconciles persisted state from events and artifacts when run-record diverges', async () => {
+  await withTempDir(async (baseDir) => {
+    const controller = makeController(baseDir);
+    const record = await controller.startRun(buildExecutableEditIntent('run-reconcile'));
+
+    await writeFile(
+      join(baseDir, 'storage', 'runs', record.runId, 'run-record.json'),
+      `${JSON.stringify({
+        runId: record.runId,
+        state: 'created',
+        startedAt: '2024-01-01T00:00:00.000Z',
+      }, null, 2)}\n`,
+      'utf8',
+    );
+
+    const reconciled = await controller.getRun(record.runId);
+    assert(reconciled);
+    assert.equal(reconciled.state, 'validated');
+    assert.equal(reconciled.validation?.ok, true);
+    assert.equal(reconciled.validation?.executedValidatorCount, 2);
+    assert.ok(reconciled.patchArtifactId);
+    assert.ok(reconciled.reviewBundleArtifactId);
+  });
+});
+
+test('corrupt event logs surface explicit corruption errors', async () => {
+  await withTempDir(async (baseDir) => {
+    const controller = makeController(baseDir);
+    const record = await controller.startRun(buildExecutableEditIntent('run-corrupt-events'));
+    const eventsPath = join(baseDir, 'storage', 'runs', record.runId, 'events.jsonl');
+    const existing = await readFile(eventsPath, 'utf8');
+
+    await writeFile(eventsPath, `${existing}{not json}\n`, 'utf8');
+
+    await assert.rejects(
+      () => controller.getEvents(record.runId),
+      (error: unknown) => {
+        assert.equal((error as { name?: string }).name, 'RunCorruptionError');
+        assert.equal((error as { code?: string }).code, 'event_log_corrupt');
+        assert.match(String((error as Error).message), /corrupt event log/i);
+        return true;
+      },
+    );
+  });
+});
+
+test('corrupt artifact manifests surface explicit corruption errors', async () => {
+  await withTempDir(async (baseDir) => {
+    const controller = makeController(baseDir);
+    const record = await controller.startRun(buildExecutableEditIntent('run-corrupt-artifacts'));
+    const manifestPath = join(baseDir, 'storage', 'runs', record.runId, 'artifacts', 'manifest.jsonl');
+    const existing = await readFile(manifestPath, 'utf8');
+
+    await writeFile(manifestPath, `${existing}{not json}\n`, 'utf8');
+
+    await assert.rejects(
+      () => controller.getArtifacts(record.runId),
+      (error: unknown) => {
+        assert.equal((error as { name?: string }).name, 'RunCorruptionError');
+        assert.equal((error as { code?: string }).code, 'artifact_manifest_corrupt');
+        assert.match(String((error as Error).message), /corrupt artifact manifest/i);
+        return true;
+      },
+    );
+  });
+});
+
+test('filesystem run locks serialize controllers for the same run id', async () => {
+  await withTempDir(async (baseDir) => {
+    const firstController = makeController(baseDir);
+    const secondController = makeController(baseDir);
+    const releaseFirst = await (firstController as any).acquireFilesystemRunLock('run-lock-shared');
+
+    let secondAcquired = false;
+    const secondPromise = ((secondController as any).acquireFilesystemRunLock('run-lock-shared') as Promise<() => Promise<void>>)
+      .then((releaseSecond) => {
+        secondAcquired = true;
+        return releaseSecond;
+      });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(secondAcquired, false);
+
+    await releaseFirst();
+    const releaseSecond = await secondPromise;
+    assert.equal(secondAcquired, true);
+    await releaseSecond();
+  });
+});

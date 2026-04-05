@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import process from 'node:process';
 
 import { ArtifactStore, type ArtifactRecord } from '../artifacts/artifact-store.js';
 import type { PatchArtifact } from '../artifacts/patch-artifact.js';
@@ -8,7 +9,7 @@ import { buildRunSummary } from '../artifacts/run-summary.js';
 import { applyPatchArtifact } from '../apply/apply-artifact.js';
 import { EventLog } from '../events/event-log.js';
 import { replayRun } from '../events/replay.js';
-import { RunConflictError, RunNotFoundError } from '../errors/run-errors.js';
+import { RunConflictError, RunCorruptionError, RunNotFoundError } from '../errors/run-errors.js';
 import { IntentDispatcher } from '../intents/intent-dispatcher.js';
 import type { Intent, IntentResult, ExecutionContext, ValidationOverride, EditFilesIntent } from '../intents/intent.types.js';
 import { validateIntent } from '../intents/intent-validator.js';
@@ -38,6 +39,10 @@ export type RunRecord = {
   startedAt: string;
 };
 
+const RUN_LOCK_WAIT_MS = 30_000;
+const RUN_LOCK_RETRY_MS = 100;
+const RUN_LOCK_STALE_MS = 5 * 60_000;
+
 export class RuntimeController {
   private readonly eventLog: EventLog;
   private readonly artifacts: ArtifactStore;
@@ -58,8 +63,142 @@ export class RuntimeController {
     return join(this.options.baseDir, 'storage', 'runs', runId, 'run-record.json');
   }
 
+  private runRoot(runId: string): string {
+    return join(this.options.baseDir, 'storage', 'runs', runId);
+  }
+
+  private runLockDir(runId: string): string {
+    return join(this.runRoot(runId), '.lock');
+  }
+
+  private runLockInfoPath(runId: string): string {
+    return join(this.runLockDir(runId), 'owner.json');
+  }
+
   worktreeFor(runId: string): string {
     return join(this.options.baseDir, 'workspace', `run-${runId}`);
+  }
+
+  private async readRunRecordRaw(runId: string): Promise<RunRecord | null> {
+    try {
+      const raw = await readFile(this.runRecordPath(runId), 'utf8');
+      try {
+        return JSON.parse(raw) as RunRecord;
+      } catch {
+        throw new RunCorruptionError('run_record_corrupt', `corrupt run record for ${runId}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async acquireFilesystemRunLock(runId: string): Promise<() => Promise<void>> {
+    await mkdir(this.runRoot(runId), { recursive: true });
+
+    const lockDir = this.runLockDir(runId);
+    const lockInfoPath = this.runLockInfoPath(runId);
+    const owner = {
+      pid: process.pid,
+      actor: this.options.actor,
+      acquiredAt: new Date().toISOString(),
+      heartbeatAt: new Date().toISOString(),
+    };
+    const deadline = Date.now() + RUN_LOCK_WAIT_MS;
+
+    const writeOwner = async () => {
+      owner.heartbeatAt = new Date().toISOString();
+      await writeFile(lockInfoPath, JSON.stringify(owner, null, 2), 'utf8');
+    };
+
+    const isStale = async (): Promise<boolean> => {
+      try {
+        const lockInfo = await stat(lockInfoPath);
+        return Date.now() - lockInfo.mtimeMs > RUN_LOCK_STALE_MS;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+          const lockStats = await stat(lockDir);
+          return Date.now() - lockStats.mtimeMs > RUN_LOCK_STALE_MS;
+        }
+        throw error;
+      }
+    };
+
+    while (true) {
+      try {
+        await mkdir(lockDir);
+        await writeOwner();
+        const heartbeat = setInterval(() => {
+          void writeOwner().catch(() => undefined);
+        }, 1_000);
+        heartbeat.unref();
+        return async () => {
+          clearInterval(heartbeat);
+          await rm(lockDir, { recursive: true, force: true });
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException | undefined)?.code !== 'EEXIST') {
+          throw error;
+        }
+
+        if (await isStale()) {
+          await rm(lockDir, { recursive: true, force: true });
+          continue;
+        }
+
+        if (Date.now() >= deadline) {
+          throw new RunConflictError('run_lock_timeout', `timed out waiting for run lock: ${runId}`);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, RUN_LOCK_RETRY_MS));
+      }
+    }
+  }
+
+  private reconcileRunRecord(runId: string, record: RunRecord | null, events: Awaited<ReturnType<EventLog['readAll']>>, artifacts: ArtifactRecord[]): RunRecord | null {
+    if (!record && events.length === 0 && artifacts.length === 0) {
+      return null;
+    }
+
+    const replay = replayRun(events);
+    const approvalEvent = [...events].reverse().find((event) => event.type === 'approval_recorded');
+    const validationEvent = [...events].reverse().find((event) => event.type === 'promotion_evaluated');
+    const patchArtifactId = [...artifacts].reverse().find((artifact) => artifact.kind === 'patch')?.id;
+    const reviewBundleArtifactId = [...artifacts].reverse().find((artifact) => artifact.kind === 'review-bundle')?.id;
+    const baseRecord: RunRecord = record ?? {
+      runId,
+      state: replay.currentState as RunState,
+      startedAt: events[0]?.timestamp ?? new Date().toISOString(),
+    };
+
+    return {
+      ...baseRecord,
+      state: replay.currentState as RunState,
+      patchArtifactId: patchArtifactId ?? baseRecord.patchArtifactId,
+      reviewBundleArtifactId: reviewBundleArtifactId ?? baseRecord.reviewBundleArtifactId,
+      approval: approvalEvent && typeof approvalEvent.approved === 'boolean'
+        ? {
+            approved: approvalEvent.approved,
+            actor: typeof approvalEvent.actor === 'string' ? approvalEvent.actor : baseRecord.approval?.actor ?? 'unknown',
+            at: approvalEvent.timestamp,
+            reason: typeof approvalEvent.reason === 'string' ? approvalEvent.reason : baseRecord.approval?.reason,
+          }
+        : baseRecord.approval,
+      validation: validationEvent
+        ? {
+            ok: Boolean(validationEvent.ok),
+            requiresApproval: Boolean(validationEvent.requiresApproval),
+            results: Array.isArray(validationEvent.results) ? validationEvent.results as PromotionDecision['results'] : [],
+            summary: typeof validationEvent.summary === 'string' ? validationEvent.summary : baseRecord.validation?.summary ?? '',
+            recommendedNextState: replay.validationOk ? 'validated' : 'failed',
+            executedValidatorCount: typeof validationEvent.executedValidatorCount === 'number' ? validationEvent.executedValidatorCount : baseRecord.validation?.executedValidatorCount ?? 0,
+            overrideApplied: Boolean(validationEvent.overrideApplied),
+            overrideReason: typeof validationEvent.overrideReason === 'string' ? validationEvent.overrideReason : undefined,
+          }
+        : baseRecord.validation,
+    };
   }
 
   private async withRunLock<T>(runId: string, work: () => Promise<T>): Promise<T> {
@@ -72,9 +211,11 @@ export class RuntimeController {
     this.runLocks.set(runId, tail);
 
     await previous.catch(() => undefined);
+    const releaseFilesystemLock = await this.acquireFilesystemRunLock(runId);
     try {
       return await work();
     } finally {
+      await releaseFilesystemLock();
       releaseCurrent();
       void tail.finally(() => {
         if (this.runLocks.get(runId) === tail) {
@@ -122,12 +263,12 @@ export class RuntimeController {
   }
 
   async getRun(runId: string): Promise<RunRecord | null> {
-    try {
-      const raw = await readFile(this.runRecordPath(runId), 'utf8');
-      return JSON.parse(raw) as RunRecord;
-    } catch {
-      return null;
-    }
+    const [record, events, artifacts] = await Promise.all([
+      this.readRunRecordRaw(runId),
+      this.eventLog.readAll(runId),
+      this.artifacts.list(runId),
+    ]);
+    return this.reconcileRunRecord(runId, record, events, artifacts);
   }
 
   async listRuns(): Promise<RunRecord[]> {
@@ -137,8 +278,11 @@ export class RuntimeController {
       const runIds = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
       const records = await Promise.all(runIds.map((runId) => this.getRun(runId)));
       return records.filter((record): record is RunRecord => Boolean(record));
-    } catch {
-      return [];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+        return [];
+      }
+      throw error;
     }
   }
 
@@ -162,9 +306,11 @@ export class RuntimeController {
     artifacts: Awaited<ReturnType<RuntimeController['getArtifacts']>>;
     worktreeDir: string;
   }> {
-    const run = await this.getRun(runId);
-    const events = await this.getEvents(runId);
-    const artifacts = await this.getArtifacts(runId);
+    const [run, events, artifacts] = await Promise.all([
+      this.getRun(runId),
+      this.getEvents(runId),
+      this.getArtifacts(runId),
+    ]);
     return {
       run,
       replay: run ? replayRun(events) : null,
@@ -176,7 +322,7 @@ export class RuntimeController {
 
   private buildDispatcher(authority: ExecutionAuthority): IntentDispatcher {
     const dispatcher = new IntentDispatcher();
-    for (const intentType of ['read_file', 'search_code', 'run_command', 'edit_files', 'model_call', 'ask_user', 'finalize'] as const) {
+    for (const intentType of ['read_file', 'search_code', 'edit_files', 'model_call', 'ask_user', 'finalize'] as const) {
       dispatcher.register(intentType, async (registeredIntent) => authority.execute(registeredIntent));
     }
     return dispatcher;

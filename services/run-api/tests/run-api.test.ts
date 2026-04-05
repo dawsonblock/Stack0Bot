@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { createRunApiServer } from '../src/server.js';
@@ -184,6 +186,40 @@ test('run-api classifies missing and conflicting lifecycle operations clearly', 
       });
       assert.equal(invalidRunCommand.status, 400);
       assert.equal(invalidRunCommand.body.error, 'bad_request');
+      assert.match(invalidRunCommand.body.message, /not part of the supported runtime/i);
+    } finally {
+      await listener.close();
+    }
+  });
+});
+
+test('run-api surfaces persisted corruption as explicit server errors', async () => {
+  await withTempDir(async (baseDir) => {
+    const server = createRunApiServer({
+      baseDir,
+      actor: 'api-tester',
+      runtimeGateway: {
+        baseUrl: 'http://127.0.0.1:9',
+        maxTokensDefault: 256,
+      },
+    });
+    const listener = await listen(server);
+    try {
+      const created = await requestJson(listener.baseUrl, '/v1/runs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ intent: buildExecutableEditIntent('api-corrupt') }),
+      });
+      assert.equal(created.status, 201);
+
+      const eventsPath = join(baseDir, 'storage', 'runs', 'api-corrupt', 'events.jsonl');
+      const existing = await readFile(eventsPath, 'utf8');
+      await writeFile(eventsPath, `${existing}{not json}\n`, 'utf8');
+
+      const snapshot = await requestJson(listener.baseUrl, '/v1/runs/api-corrupt');
+      assert.equal(snapshot.status, 500);
+      assert.equal(snapshot.body.error, 'event_log_corrupt');
+      assert.match(snapshot.body.message, /corrupt event log/i);
     } finally {
       await listener.close();
     }

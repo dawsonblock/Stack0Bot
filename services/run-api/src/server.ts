@@ -76,12 +76,10 @@ function classifyError(error: unknown): { status: number; code: string; message:
     message.includes('request body must include an intent object')
     || message.includes('request body must be valid JSON')
     || message.includes('unknown intent type')
+    || message.includes('run_command is not part of the supported runtime')
     || message.includes('unsafe ')
     || message.includes('is required')
     || message.includes('must not be empty')
-    || message.includes('must use an allowlisted executable name')
-    || message.includes('is not allowlisted')
-    || message.includes('allowNetwork is not supported')
     || message.includes('too many ')
     || message.includes('maxTokens must be between')
   ) {

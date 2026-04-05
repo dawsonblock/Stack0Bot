@@ -8,7 +8,7 @@ This stack enforces a single execution authority for intent handling and a singl
 - `execution-authority.ts` may read files, search code, run bounded commands, call the runtime gateway, or propose a patch artifact.
 - Actual file mutation happens only in `apply-artifact.ts`, and only after explicit approval.
 - Command execution is delegated to `services/sandbox`, which enforces cwd scoping, command allowlists, timeout/output bounds, and honest degraded network reporting.
-- `run_command` is a bounded read-only intent with a fixed executable allowlist; it is not a general shell escape hatch.
+- `run_command` is not part of the supported runtime path; the live system rejects it rather than treating it as an operator feature.
 - Model calls are delegated to `services/runtime-gateway`.
 - Every action emits an event into `storage/runs/<runId>/events.jsonl`
 - Every mutating action produces an artifact under `storage/runs/<runId>/artifacts/`

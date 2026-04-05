@@ -1,6 +1,7 @@
 import { mkdir, writeFile, readFile, appendFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { RunCorruptionError } from '../errors/run-errors.js';
 
 export type ArtifactKind = 'patch' | 'command-output' | 'model-output' | 'summary' | 'validator-report' | 'approval-decision' | 'review-bundle';
 
@@ -56,9 +57,21 @@ export class ArtifactStore {
   async list(runId: string): Promise<ArtifactRecord[]> {
     try {
       const raw = await readFile(this.manifestPath(runId), 'utf8');
-      return raw.split('\n').filter(Boolean).map((line) => JSON.parse(line) as ArtifactRecord);
-    } catch {
-      return [];
+      return raw
+        .split('\n')
+        .filter(Boolean)
+        .map((line, index) => {
+          try {
+            return JSON.parse(line) as ArtifactRecord;
+          } catch {
+            throw new RunCorruptionError('artifact_manifest_corrupt', `corrupt artifact manifest for run ${runId} at line ${index + 1}`);
+          }
+        });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+        return [];
+      }
+      throw error;
     }
   }
 
