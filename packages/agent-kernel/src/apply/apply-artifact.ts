@@ -3,6 +3,7 @@ import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { EventLog } from '../events/event-log.js';
 import type { PatchArtifact } from '../artifacts/patch-artifact.js';
+import { RunConflictError } from '../errors/run-errors.js';
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -31,7 +32,7 @@ export async function applyPatchArtifact(args: {
     }
     const currentHash = currentContent === null ? null : sha256(currentContent);
     if (currentHash !== (args.artifact.beforeHashes[snapshot.path] ?? null)) {
-      throw new Error(`precondition failed for ${snapshot.path}; worktree content drifted`);
+      throw new RunConflictError('apply_precondition_failed', `precondition failed for ${snapshot.path}; worktree content drifted`);
     }
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, snapshot.content, snapshot.encoding ?? 'utf8');

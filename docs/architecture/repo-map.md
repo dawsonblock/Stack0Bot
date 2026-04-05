@@ -5,12 +5,12 @@
 - `apps/shell` – thin operator surface for status checks and run lifecycle commands.
 - `services/run-api` – local HTTP entrypoint for run creation, inspection, approval, apply, and completion.
 - `packages/agent-kernel` – bounded control core with state machine, artifacts, promotion, and replay.
-- `services/runtime-gateway` – policy boundary in front of oMLX.
-- `vendor/omlx-main` – local runtime dependency served as a separate process.
+- `services/runtime-gateway` – policy boundary for local upstream model traffic.
 
 ## Source integrations kept out of the core build path
 
 - `vendor/gsd-2-main` – vendored shell and workflow source kept for reference and integration work, not as the kernel.
+- `vendor/omlx-main` – upstream runtime helper used by local setup and smoke scripts, not part of the supported product surface.
 - `configs/*`, `patches/*`, and `examples/*` – supporting configuration, samples, and patch material.
 
 ## Experimental

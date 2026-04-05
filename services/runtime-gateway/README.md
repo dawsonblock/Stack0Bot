@@ -1,13 +1,15 @@
 # Runtime Gateway
 
-This FastAPI service sits between the shell/control plane and the local oMLX runtime.
+This FastAPI service sits between the shell/control plane and a local upstream model runtime.
 
 ## Purpose
 
-- keep GSD and oMLX decoupled at a process boundary
+- keep the bounded control plane and the upstream model runtime decoupled at a process boundary
 - enforce optional bearer auth plus model allowlists, aliases, fallbacks, and token caps
 - expose shell-friendly runtime metadata
-- proxy the currently implemented chat and messages APIs to oMLX
+- proxy the currently implemented chat and messages APIs to the upstream runtime
+
+The live scripts currently point this service at oMLX, but that upstream process is outside the supported product surface.
 
 ## Endpoints
 

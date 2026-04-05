@@ -118,6 +118,19 @@ if [[ "$validator_report_count" -lt 4 ]]; then
 	exit 1
 fi
 
+review_bundle_count="$(printf '%s' "$mutating_artifacts" | python3 -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+count = sum(1 for artifact in payload["artifacts"] if artifact["kind"] == "review-bundle")
+print(count)
+')"
+if [[ "$review_bundle_count" -lt 1 ]]; then
+	echo 'Expected a review-bundle artifact for the mutating run' >&2
+	exit 1
+fi
+
 echo '[5/9] recording explicit approval'
 approval_response="$(run_cli approve "$mutating_run_id" 'bounded smoke approval')"
 approval_state="$(printf '%s' "$approval_response" | json_field 'run.state')"

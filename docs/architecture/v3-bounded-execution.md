@@ -7,12 +7,15 @@ This stack enforces a single execution authority for intent handling and a singl
 - The shell talks to the system through `services/run-api` only.
 - `execution-authority.ts` may read files, search code, run bounded commands, call the runtime gateway, or propose a patch artifact.
 - Actual file mutation happens only in `apply-artifact.ts`, and only after explicit approval.
-- Command execution is delegated to `services/sandbox`, which enforces cwd scoping, command allowlists, and honest degraded network reporting.
+- Command execution is delegated to `services/sandbox`, which enforces cwd scoping, command allowlists, timeout/output bounds, and honest degraded network reporting.
+- `run_command` is a bounded read-only intent with a fixed executable allowlist; it is not a general shell escape hatch.
 - Model calls are delegated to `services/runtime-gateway`.
 - Every action emits an event into `storage/runs/<runId>/events.jsonl`
 - Every mutating action produces an artifact under `storage/runs/<runId>/artifacts/`
+- Every proposed patch also produces a `review-bundle` artifact that captures the patch reference, validator results, override state, and apply preconditions.
 - Promotion stages the proposed post-patch worktree and runs executable validators before a run can become `validated`
 - Mutating runs fail closed when no executable validation path exists, unless an explicit override is recorded
+- The `security-validator` is lightweight pattern screening, not a hardened security policy engine.
 - Apply writes into `workspace/run-<runId>/`, not into the repository root
 - Finalization writes summary artifacts only and does not mutate code
 

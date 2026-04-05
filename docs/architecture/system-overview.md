@@ -1,24 +1,21 @@
 # System Overview
 
-## Core separation
-
-- GSD is the operator shell and orchestration surface.
-- oMLX is the dedicated model runtime.
-- the runtime gateway is the seam between them.
-- TurboQuant stays experimental until benchmarked on real workloads.
-
-## Default execution path
+## Supported runtime path
 
 ```text
-User Intent
-  -> GSD shell / agent session
-  -> tool registry / policy gate
-  -> runtime gateway
-  -> oMLX runtime
-  -> streamed response
-  -> GSD verification / next step
+operator shell
+  -> run-api
+  -> agent-kernel
+  -> runtime-gateway
 ```
 
-## Why this shape
+## Responsibilities
 
-This avoids a fake monolithic merge. GSD keeps workflow and session logic. oMLX keeps inference, caching, batching, model loading, and memory enforcement. The gateway gives you an explicit place to enforce model allowlists, health checks, and compatibility fixes.
+- `apps/shell` is a thin operator surface.
+- `services/run-api` is a narrow HTTP wrapper over run lifecycle operations.
+- `packages/agent-kernel` is the single execution authority for validation, approval, apply, completion, events, and artifacts.
+- `services/runtime-gateway` is the policy boundary for local model traffic.
+
+## Out of surface
+
+Local live verification can point `services/runtime-gateway` at a separate upstream model runtime such as oMLX, but that upstream process is not part of the supported product surface. Vendored and reference trees are not part of the runtime path unless the core code imports them and the core tests prove them.

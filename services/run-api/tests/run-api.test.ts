@@ -48,6 +48,18 @@ function buildExecutableEditIntent(runId: string) {
   };
 }
 
+function buildRunCommandIntent(runId: string, command: string, allowNetwork?: boolean) {
+  return {
+    type: 'run_command',
+    runId,
+    intentId: `${runId}-intent`,
+    requestedBy: 'operator',
+    createdAt: new Date().toISOString(),
+    command,
+    allowNetwork,
+  };
+}
+
 test('run-api exposes the full mutating lifecycle over HTTP', async () => {
   await withTempDir(async (baseDir) => {
     const server = createRunApiServer({
@@ -78,6 +90,7 @@ test('run-api exposes the full mutating lifecycle over HTTP', async () => {
       const snapshot = await requestJson(listener.baseUrl, '/v1/runs/api-run');
       assert.equal(snapshot.status, 200);
       assert.equal(snapshot.body.run.runId, 'api-run');
+      assert.equal(snapshot.body.replay.currentState, 'validated');
 
       const events = await requestJson(listener.baseUrl, '/v1/runs/api-run/events');
       assert.equal(events.status, 200);
@@ -86,6 +99,7 @@ test('run-api exposes the full mutating lifecycle over HTTP', async () => {
       const artifacts = await requestJson(listener.baseUrl, '/v1/runs/api-run/artifacts');
       assert.equal(artifacts.status, 200);
       assert(artifacts.body.artifacts.some((artifact: { kind: string }) => artifact.kind === 'patch'));
+      assert(artifacts.body.artifacts.some((artifact: { kind: string }) => artifact.kind === 'review-bundle'));
 
       const approved = await requestJson(listener.baseUrl, '/v1/runs/api-run/approve', {
         method: 'POST',
@@ -110,6 +124,12 @@ test('run-api exposes the full mutating lifecycle over HTTP', async () => {
       });
       assert.equal(completed.status, 200);
       assert.equal(completed.body.run.state, 'completed');
+
+      const finalSnapshot = await requestJson(listener.baseUrl, '/v1/runs/api-run');
+      assert.equal(finalSnapshot.status, 200);
+      assert.equal(finalSnapshot.body.replay.currentState, 'completed');
+      assert.equal(finalSnapshot.body.replay.applyStatus, 'applied');
+      assert.equal(finalSnapshot.body.replay.reviewBundleArtifactIds.length, 1);
     } finally {
       await listener.close();
     }
@@ -134,6 +154,7 @@ test('run-api classifies missing and conflicting lifecycle operations clearly', 
         body: JSON.stringify({ actor: 'nobody' }),
       });
       assert.equal(missing.status, 404);
+      assert.equal(missing.body.error, 'run_not_found');
 
       const badRequest = await requestJson(listener.baseUrl, '/v1/runs', {
         method: 'POST',
@@ -141,6 +162,7 @@ test('run-api classifies missing and conflicting lifecycle operations clearly', 
         body: JSON.stringify({}),
       });
       assert.equal(badRequest.status, 400);
+      assert.equal(badRequest.body.error, 'bad_request');
 
       await requestJson(listener.baseUrl, '/v1/runs', {
         method: 'POST',
@@ -153,6 +175,86 @@ test('run-api classifies missing and conflicting lifecycle operations clearly', 
         body: JSON.stringify({}),
       });
       assert.equal(conflict.status, 409);
+      assert.equal(conflict.body.error, 'apply_requires_approved_run');
+
+      const invalidRunCommand = await requestJson(listener.baseUrl, '/v1/runs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ intent: buildRunCommandIntent('api-run-command', 'node -e "process.stdout.write(1)"') }),
+      });
+      assert.equal(invalidRunCommand.status, 400);
+      assert.equal(invalidRunCommand.body.error, 'bad_request');
+    } finally {
+      await listener.close();
+    }
+  });
+});
+
+test('run-api serializes repeated lifecycle operations and returns duplicate conflict codes', async () => {
+  await withTempDir(async (baseDir) => {
+    const server = createRunApiServer({
+      baseDir,
+      actor: 'api-tester',
+      runtimeGateway: {
+        baseUrl: 'http://127.0.0.1:9',
+        maxTokensDefault: 256,
+      },
+    });
+    const listener = await listen(server);
+    try {
+      const created = await requestJson(listener.baseUrl, '/v1/runs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ intent: buildExecutableEditIntent('api-duplicate') }),
+      });
+      assert.equal(created.status, 201);
+
+      const approved = await requestJson(listener.baseUrl, '/v1/runs/api-duplicate/approve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ actor: 'operator', reason: 'approve once' }),
+      });
+      assert.equal(approved.status, 200);
+
+      const duplicateApprove = await requestJson(listener.baseUrl, '/v1/runs/api-duplicate/approve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ actor: 'operator', reason: 'approve twice' }),
+      });
+      assert.equal(duplicateApprove.status, 409);
+      assert.equal(duplicateApprove.body.error, 'duplicate_approval');
+
+      const [firstApply, secondApply] = await Promise.all([
+        requestJson(listener.baseUrl, '/v1/runs/api-duplicate/apply', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        }),
+        requestJson(listener.baseUrl, '/v1/runs/api-duplicate/apply', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        }),
+      ]);
+      const applyStatuses = [firstApply.status, secondApply.status].sort((left, right) => left - right);
+      assert.deepEqual(applyStatuses, [200, 409]);
+      const duplicateApply = [firstApply, secondApply].find((result) => result.status === 409);
+      assert.equal(duplicateApply?.body.error, 'duplicate_apply');
+
+      const completed = await requestJson(listener.baseUrl, '/v1/runs/api-duplicate/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ notes: 'done' }),
+      });
+      assert.equal(completed.status, 200);
+
+      const duplicateComplete = await requestJson(listener.baseUrl, '/v1/runs/api-duplicate/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ notes: 'again' }),
+      });
+      assert.equal(duplicateComplete.status, 409);
+      assert.equal(duplicateComplete.body.error, 'duplicate_completion');
     } finally {
       await listener.close();
     }

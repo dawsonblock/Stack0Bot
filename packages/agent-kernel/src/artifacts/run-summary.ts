@@ -4,6 +4,7 @@ export type RunSummary = {
   validation?: unknown;
   approval?: { approved: boolean; actor: string; at: string; reason?: string };
   appliedArtifactIds: string[];
+  reviewArtifactIds?: string[];
   failedReason?: string;
   commandCount: number;
   modelCallCount: number;

@@ -1,10 +1,13 @@
+import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { parseSandboxCommand } from '@agent-stack/sandbox';
 import { INTENT_TYPES, type Intent, type EditFilesIntent, type ModelCallIntent, type ValidationOverride } from './intent.types.js';
 
 export const MAX_EDIT_COUNT = 32;
 export const MAX_EDIT_BYTES = 512 * 1024;
 export const MAX_MODEL_MESSAGES = 64;
 export const MAX_MODEL_TOKENS = 8192;
+export const READONLY_RUN_COMMAND_ALLOWLIST = ['rg', 'find', 'cat', 'sed', 'head', 'tail', 'wc', 'pwd'] as const;
 
 function ensureKnownType(value: string): void {
   if (!INTENT_TYPES.includes(value as (typeof INTENT_TYPES)[number])) {
@@ -70,6 +73,20 @@ function validateModelIntent(intent: ModelCallIntent): void {
   if (bounded <= 0 || bounded > MAX_MODEL_TOKENS) throw new Error(`maxTokens must be between 1 and ${MAX_MODEL_TOKENS}`);
 }
 
+function validateRunCommandIntent(intent: Extract<Intent, { type: 'run_command' }>): void {
+  if (!intent.command.trim()) throw new Error('run_command.command is required');
+  const parsed = parseSandboxCommand(intent.command);
+  if (parsed.command !== basename(parsed.command)) {
+    throw new Error('run_command.command must use an allowlisted executable name');
+  }
+  if (!READONLY_RUN_COMMAND_ALLOWLIST.includes(parsed.command as (typeof READONLY_RUN_COMMAND_ALLOWLIST)[number])) {
+    throw new Error(`run_command.command "${parsed.command}" is not allowlisted`);
+  }
+  if (intent.allowNetwork) {
+    throw new Error('run_command.allowNetwork is not supported');
+  }
+}
+
 export function validateIntent(intent: Intent): Intent {
   ensureKnownType(intent.type);
   const normalized = normalizeBaseFields(intent);
@@ -84,9 +101,9 @@ export function validateIntent(intent: Intent): Intent {
       if (normalized.cwd && !isSafeRelativePath(normalized.cwd) && normalized.cwd !== '.') throw new Error(`unsafe cwd: ${normalized.cwd}`);
       return { ...normalized, cwd: normalized.cwd ?? '.', limit: Math.max(1, Math.min(normalized.limit ?? 50, 200)) };
     case 'run_command':
-      if (!normalized.command.trim()) throw new Error('run_command.command is required');
       if (normalized.cwd && !isSafeRelativePath(normalized.cwd) && normalized.cwd !== '.') throw new Error(`unsafe cwd: ${normalized.cwd}`);
-      return { ...normalized, cwd: normalized.cwd ?? '.', timeoutMs: Math.max(1000, Math.min(normalized.timeoutMs ?? 60_000, 300_000)) };
+      validateRunCommandIntent(normalized);
+      return { ...normalized, cwd: normalized.cwd ?? '.', allowNetwork: false, timeoutMs: Math.max(1000, Math.min(normalized.timeoutMs ?? 60_000, 120_000)) };
     case 'edit_files':
       validateEditIntent(normalized);
       return { ...normalized, cwd: normalized.cwd ?? '.', policy: { approvalRequired: true, ...(normalized.policy ?? {}) } };

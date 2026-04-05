@@ -2,7 +2,7 @@ import { mkdir, writeFile, readFile, appendFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-export type ArtifactKind = 'patch' | 'command-output' | 'model-output' | 'summary' | 'validator-report' | 'approval-decision';
+export type ArtifactKind = 'patch' | 'command-output' | 'model-output' | 'summary' | 'validator-report' | 'approval-decision' | 'review-bundle';
 
 export type ArtifactRecord = {
   id: string;

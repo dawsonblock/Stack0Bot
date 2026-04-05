@@ -37,7 +37,7 @@ The snapshot includes the per-run worktree path under `workspace/run-<runId>/`.
 ## Mutating run lifecycle
 
 1. Create a mutating run with `start-json` or `start-file`.
-2. Inspect validation results, validator-report artifacts, and `validator_executed` events.
+2. Inspect the `review-bundle` artifact, validator-report artifacts, and `validator_executed` events.
 3. Approve or reject explicitly.
 4. Apply the approved patch artifact into the per-run worktree.
 5. Complete the run to write the summary artifact.

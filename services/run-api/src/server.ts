@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { LocalRunApi, type Intent } from '@agent-stack/agent-kernel';
+import { LocalRunApi, isRunOperationError, type Intent } from '@agent-stack/agent-kernel';
 
 export type RunApiServerOptions = {
   baseDir: string;
@@ -40,7 +40,11 @@ async function readJson(req: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new Error('request body must be valid JSON');
+  }
 }
 
 function notFound(res: ServerResponse) {
@@ -52,6 +56,10 @@ function badRequest(res: ServerResponse, message: string) {
 }
 
 function classifyError(error: unknown): { status: number; code: string; message: string } {
+  if (isRunOperationError(error)) {
+    return { status: error.status, code: error.code, message: error.message };
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   if (message.startsWith('run not found:')) {
     return { status: 404, code: 'not_found', message };
@@ -66,10 +74,14 @@ function classifyError(error: unknown): { status: number; code: string; message:
   }
   if (
     message.includes('request body must include an intent object')
+    || message.includes('request body must be valid JSON')
     || message.includes('unknown intent type')
     || message.includes('unsafe ')
     || message.includes('is required')
     || message.includes('must not be empty')
+    || message.includes('must use an allowlisted executable name')
+    || message.includes('is not allowlisted')
+    || message.includes('allowNetwork is not supported')
     || message.includes('too many ')
     || message.includes('maxTokens must be between')
   ) {
