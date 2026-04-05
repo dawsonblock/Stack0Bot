@@ -1,13 +1,10 @@
-import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { parseSandboxCommand } from '@agent-stack/sandbox';
 import { INTENT_TYPES, type Intent, type EditFilesIntent, type ModelCallIntent, type ValidationOverride } from './intent.types.js';
 
 export const MAX_EDIT_COUNT = 32;
 export const MAX_EDIT_BYTES = 512 * 1024;
 export const MAX_MODEL_MESSAGES = 64;
 export const MAX_MODEL_TOKENS = 8192;
-export const READONLY_RUN_COMMAND_ALLOWLIST = ['rg', 'find', 'cat', 'sed', 'head', 'tail', 'wc', 'pwd'] as const;
 
 function ensureKnownType(value: string): void {
   if (!INTENT_TYPES.includes(value as (typeof INTENT_TYPES)[number])) {
@@ -75,16 +72,7 @@ function validateModelIntent(intent: ModelCallIntent): void {
 
 function validateRunCommandIntent(intent: Extract<Intent, { type: 'run_command' }>): void {
   if (!intent.command.trim()) throw new Error('run_command.command is required');
-  const parsed = parseSandboxCommand(intent.command);
-  if (parsed.command !== basename(parsed.command)) {
-    throw new Error('run_command.command must use an allowlisted executable name');
-  }
-  if (!READONLY_RUN_COMMAND_ALLOWLIST.includes(parsed.command as (typeof READONLY_RUN_COMMAND_ALLOWLIST)[number])) {
-    throw new Error(`run_command.command "${parsed.command}" is not allowlisted`);
-  }
-  if (intent.allowNetwork) {
-    throw new Error('run_command.allowNetwork is not supported');
-  }
+  throw new Error('run_command is not part of the supported runtime');
 }
 
 export function validateIntent(intent: Intent): Intent {
