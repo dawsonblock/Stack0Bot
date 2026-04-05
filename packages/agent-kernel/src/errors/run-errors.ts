@@ -2,7 +2,7 @@ export class RunOperationError extends Error {
   constructor(
     public readonly code: string,
     message: string,
-    public readonly status: 400 | 404 | 409 | 500,
+    public readonly status: 400 | 404 | 409 | 413 | 500,
   ) {
     super(message);
     this.name = new.target.name;
@@ -24,6 +24,12 @@ export class RunNotFoundError extends RunOperationError {
 export class RunConflictError extends RunOperationError {
   constructor(code: string, message: string) {
     super(code, message, 409);
+  }
+}
+
+export class RunPayloadTooLargeError extends RunOperationError {
+  constructor(message: string) {
+    super('request_too_large', message, 413);
   }
 }
 

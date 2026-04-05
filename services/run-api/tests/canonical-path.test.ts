@@ -74,6 +74,7 @@ test('shell -> run-api -> agent-kernel -> runtime-gateway canonical path remains
     const runApiServer = createRunApiServer({
       baseDir,
       actor: 'operator',
+      logger: () => {},
       runtimeGateway: {
         baseUrl: gateway.baseUrl,
         maxTokensDefault: 256,

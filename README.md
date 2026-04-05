@@ -20,6 +20,7 @@ The supported shell is the thin operator surface in `apps/shell`. Live verificat
 - Review-bundle artifacts for every proposed patch, including patch references, validator results, override flags, and apply preconditions.
 - Executable promotion validators that run bounded test and lint commands on staged post-patch worktrees, plus diff checks and lightweight safety screening.
 - A runtime gateway that enforces bearer auth, model allowlists, aliases, fallbacks, and token caps.
+- A run-api HTTP surface with structured JSON request logs and bounded JSON request sizes for single-host operation.
 - Root setup, start, check, lint, test, and smoke commands.
 - Root verification and Node/TS coverage commands.
 

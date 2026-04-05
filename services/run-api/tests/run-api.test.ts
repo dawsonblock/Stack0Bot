@@ -67,6 +67,7 @@ test('run-api exposes the full mutating lifecycle over HTTP', async () => {
     const server = createRunApiServer({
       baseDir,
       actor: 'api-tester',
+      logger: () => {},
       runtimeGateway: {
         baseUrl: 'http://127.0.0.1:9',
         maxTokensDefault: 256,
@@ -143,6 +144,7 @@ test('run-api classifies missing and conflicting lifecycle operations clearly', 
     const server = createRunApiServer({
       baseDir,
       actor: 'api-tester',
+      logger: () => {},
       runtimeGateway: {
         baseUrl: 'http://127.0.0.1:9',
         maxTokensDefault: 256,
@@ -206,6 +208,7 @@ test('run-api surfaces persisted corruption as explicit server errors', async ()
     const server = createRunApiServer({
       baseDir,
       actor: 'api-tester',
+      logger: () => {},
       runtimeGateway: {
         baseUrl: 'http://127.0.0.1:9',
         maxTokensDefault: 256,
@@ -239,6 +242,7 @@ test('run-api serializes repeated lifecycle operations and returns duplicate con
     const server = createRunApiServer({
       baseDir,
       actor: 'api-tester',
+      logger: () => {},
       runtimeGateway: {
         baseUrl: 'http://127.0.0.1:9',
         maxTokensDefault: 256,
@@ -299,6 +303,109 @@ test('run-api serializes repeated lifecycle operations and returns duplicate con
       });
       assert.equal(duplicateComplete.status, 409);
       assert.equal(duplicateComplete.body.error, 'duplicate_completion');
+    } finally {
+      await listener.close();
+    }
+  });
+});
+
+test('run-api rejects oversized request bodies before dispatching them', async () => {
+  await withTempDir(async (baseDir) => {
+    const logs: Array<Record<string, unknown>> = [];
+    const server = createRunApiServer({
+      baseDir,
+      actor: 'api-tester',
+      maxBodyBytes: 256,
+      logger: (entry) => logs.push(entry),
+      runtimeGateway: {
+        baseUrl: 'http://127.0.0.1:9',
+        maxTokensDefault: 256,
+      },
+    });
+    const listener = await listen(server);
+    try {
+      const oversized = await requestJson(listener.baseUrl, '/v1/runs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-request-id': 'req-too-large',
+        },
+        body: JSON.stringify({ padding: 'x'.repeat(2048) }),
+      });
+      assert.equal(oversized.status, 413);
+      assert.equal(oversized.body.error, 'request_too_large');
+      assert.match(oversized.body.message, /256 bytes/i);
+
+      const rejectedLog = logs.find((entry) => entry.requestId === 'req-too-large');
+      assert.equal(rejectedLog?.status, 413);
+      assert.equal(rejectedLog?.event, 'request_failed');
+      assert.equal(rejectedLog?.level, 'warn');
+      assert.equal(rejectedLog?.errorCode, 'request_too_large');
+      assert.equal(rejectedLog?.path, '/v1/runs');
+    } finally {
+      await listener.close();
+    }
+  });
+});
+
+test('run-api emits structured request logs with request ids, run ids, and error codes', async () => {
+  await withTempDir(async (baseDir) => {
+    const logs: Array<Record<string, unknown>> = [];
+    const server = createRunApiServer({
+      baseDir,
+      actor: 'api-tester',
+      logger: (entry) => logs.push(entry),
+      runtimeGateway: {
+        baseUrl: 'http://127.0.0.1:9',
+        maxTokensDefault: 256,
+      },
+    });
+    const listener = await listen(server);
+    try {
+      const health = await requestJson(listener.baseUrl, '/healthz', {
+        headers: { 'x-request-id': 'req-health' },
+      });
+      assert.equal(health.status, 200);
+
+      const created = await requestJson(listener.baseUrl, '/v1/runs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-request-id': 'req-create',
+        },
+        body: JSON.stringify({ intent: buildExecutableEditIntent('api-log') }),
+      });
+      assert.equal(created.status, 201);
+
+      const invalidJson = await requestJson(listener.baseUrl, '/v1/runs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-request-id': 'req-invalid-json',
+        },
+        body: '{',
+      });
+      assert.equal(invalidJson.status, 400);
+
+      const healthLog = logs.find((entry) => entry.requestId === 'req-health');
+      assert.equal(healthLog?.event, 'request_completed');
+      assert.equal(healthLog?.level, 'info');
+      assert.equal(healthLog?.status, 200);
+      assert.equal(healthLog?.path, '/healthz');
+      assert.equal(typeof healthLog?.durationMs, 'number');
+
+      const createLog = logs.find((entry) => entry.requestId === 'req-create');
+      assert.equal(createLog?.event, 'request_completed');
+      assert.equal(createLog?.status, 201);
+      assert.equal(createLog?.runId, 'api-log');
+      assert.equal(createLog?.path, '/v1/runs');
+
+      const invalidLog = logs.find((entry) => entry.requestId === 'req-invalid-json');
+      assert.equal(invalidLog?.event, 'request_failed');
+      assert.equal(invalidLog?.level, 'warn');
+      assert.equal(invalidLog?.status, 400);
+      assert.equal(invalidLog?.errorCode, 'invalid_json');
+      assert.equal(invalidLog?.path, '/v1/runs');
     } finally {
       await listener.close();
     }

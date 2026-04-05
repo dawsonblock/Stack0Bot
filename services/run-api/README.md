@@ -25,6 +25,7 @@ Mutating runs validate against a staged post-patch worktree, fail closed when no
 
 - `AGENT_STACK_BASE_DIR` – stack root, defaults to current working directory
 - `AGENT_STACK_RUN_API_PORT` – defaults to `8788`
+- `AGENT_STACK_RUN_API_MAX_BODY_BYTES` – maximum JSON request size in bytes, defaults to `1048576`
 - `GSD_RUNTIME_GATEWAY_URL` – runtime gateway URL used by model intents
 - `GSD_RUNTIME_GATEWAY_BEARER` – optional bearer token for the runtime gateway
 - `AGENT_STACK_ACTOR` – actor recorded for approvals and run ownership
@@ -32,9 +33,14 @@ Mutating runs validate against a staged post-patch worktree, fail closed when no
 ## Error behavior
 
 - `400` for structured request and intent validation errors such as `missing_intent`, `invalid_json`, and `invalid_intent`
+- `413` for oversized request bodies with the structured error code `request_too_large`
 - `404` for missing runs
 - `409` for illegal lifecycle transitions or patch precondition drift during apply
 - `500` for persistence corruption or unexpected internal failures
+
+## Logging
+
+Requests and failures emit one structured JSON log line on stdout. Each record includes a request id, method, path, status, duration, and the run id when one is known.
 
 ## Supported local workflow
 
