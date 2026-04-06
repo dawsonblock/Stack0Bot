@@ -9,6 +9,7 @@ export type ReviewBundle = {
   generatedBy: string;
   intent: {
     type: 'edit_files';
+    intentId: string;
     reason: string;
     declaredWriteSet: string[];
     requestedEditCount: number;
@@ -18,6 +19,7 @@ export type ReviewBundle = {
     artifactId: string;
     artifactPath: string;
     patchId: string;
+    diffFormat: PatchArtifact['diffFormat'];
     changedFiles: string[];
     declaredWriteSet: string[];
   };
@@ -44,7 +46,7 @@ export function buildReviewBundle(input: {
   runId: string;
   requestedBy: string;
   generatedBy: string;
-  intent: Pick<EditFilesIntent, 'reason' | 'declaredWriteSet' | 'edits'>;
+  intent: Pick<EditFilesIntent, 'intentId' | 'reason' | 'declaredWriteSet' | 'edits'>;
   patchArtifactId: string;
   patchArtifactPath: string;
   patchArtifact: PatchArtifact;
@@ -58,6 +60,7 @@ export function buildReviewBundle(input: {
     generatedBy: input.generatedBy,
     intent: {
       type: 'edit_files',
+      intentId: input.intent.intentId,
       reason: input.intent.reason,
       declaredWriteSet: input.intent.declaredWriteSet,
       requestedEditCount: input.intent.edits.length,
@@ -67,6 +70,7 @@ export function buildReviewBundle(input: {
       artifactId: input.patchArtifactId,
       artifactPath: input.patchArtifactPath,
       patchId: input.patchArtifact.patchId,
+      diffFormat: input.patchArtifact.diffFormat,
       changedFiles: input.patchArtifact.changedFiles,
       declaredWriteSet: input.patchArtifact.declaredWriteSet,
     },

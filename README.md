@@ -19,9 +19,9 @@ The supported shell is the thin operator surface in `apps/shell`. Live verificat
 - Explicit run lifecycle with proposal, validation, approval, apply, and completion.
 - Artifact-first mutation flow with JSONL events and replayable run state.
 - Review-bundle artifacts for every proposed patch, including patch references, validator results, override flags, and apply preconditions.
-- Executable promotion validators that run bounded test and lint commands on staged post-patch worktrees, plus diff checks and lightweight safety screening.
+- Executable promotion validators that run bounded test and lint commands on staged post-patch worktrees, plus diff checks and heuristic added-line safety screening.
 - A runtime gateway that enforces bearer auth, model allowlists, aliases, fallbacks, and token caps.
-- A run-api HTTP surface with structured JSON request logs and bounded JSON request sizes for single-host operation.
+- A run-api HTTP surface with structured JSON request logs, bounded JSON request sizes, and optional inbound bearer auth for single-host operation.
 - Root setup, start, check, lint, test, and smoke commands.
 - Root verification and Node/TS coverage commands.
 
@@ -64,6 +64,7 @@ The supported shell is the thin operator surface in `apps/shell`. Live verificat
 - Approval remains explicit and recorded before apply.
 - The apply boundary requires explicit approved context and rechecks patch preconditions before writing files.
 - Patch apply writes into `workspace/run-<runId>/`, not into the repository root.
-- `run_command` is not part of the supported runtime path and is rejected if requested.
+- `run_command` remains a reserved schema residue and is rejected by the supported runtime path if requested.
 - `services/sandbox` is a restricted subprocess runner with worktree scoping, command allowlists, and timeout bounds. It does not claim host-enforced network isolation and reports unsupported or degraded network controls explicitly.
+- The `security-validator` is still heuristic. It scans added lines and risky file targets, but it is not a full security review engine.
 - Finalization writes summary artifacts only and does not mutate code.

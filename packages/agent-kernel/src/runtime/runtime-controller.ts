@@ -589,9 +589,15 @@ export class RuntimeController {
       if (!record.approval?.approved) {
         throw new RunConflictError('apply_requires_approval_context', `run ${runId} is missing approved context`);
       }
-      await this.eventLog.append(runId, { type: 'artifact_apply_requested', artifactId: artifact.id, actor: this.options.actor });
+      await this.eventLog.append(runId, {
+        type: 'artifact_apply_requested',
+        artifactId: artifact.id,
+        patchId: patch.patchId,
+        actor: this.options.actor,
+      });
       await applyPatchArtifact({
         artifact: patch,
+        artifactId: artifact.id,
         worktreeDir: this.worktreeFor(runId),
         actor: this.options.actor,
         eventLog: this.eventLog,

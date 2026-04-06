@@ -5,6 +5,8 @@ The supported local run-api path starts from the repo root and assumes the stack
 
 This is a local quickstart for the current file-backed HTTP lifecycle. It is not a production deployment guide.
 
+If you set `AGENT_STACK_RUN_API_BEARER`, the shell commands and direct HTTP calls must include that bearer token.
+
 ## Start and verify
 
 ```bash

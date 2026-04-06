@@ -18,6 +18,7 @@ function resolveWorktreePath(worktreeDir: string, relativePath: string): string 
 
 export async function applyPatchArtifact(args: {
   artifact: PatchArtifact;
+  artifactId?: string;
   worktreeDir: string;
   actor: string;
   eventLog: EventLog;
@@ -45,7 +46,8 @@ export async function applyPatchArtifact(args: {
 
   await args.eventLog.append(args.artifact.runId, {
     type: 'artifact_applied',
-    artifactId: args.artifact.patchId,
+    artifactId: args.artifactId ?? args.artifact.patchId,
+    patchId: args.artifact.patchId,
     actor: args.actor,
     approvedBy: args.approval.actor,
     changedFiles: args.artifact.changedFiles,

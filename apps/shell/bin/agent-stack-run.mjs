@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 const apiBase = process.env.AGENT_STACK_RUN_API_URL || 'http://127.0.0.1:8788';
 const actor = process.env.AGENT_STACK_ACTOR || 'operator';
 const model = process.env.AGENT_STACK_MODEL || 'local-qwen-coder';
+const runApiBearer = (process.env.AGENT_STACK_RUN_API_BEARER || '').trim();
 
 function usage() {
   console.error(`Usage:
@@ -22,9 +23,12 @@ function usage() {
 }
 
 async function request(method, path, body) {
+  const headers = {};
+  if (body) headers['content-type'] = 'application/json';
+  if (runApiBearer) headers.authorization = `Bearer ${runApiBearer}`;
   const res = await fetch(`${apiBase}${path}`, {
     method,
-    headers: body ? { 'content-type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();

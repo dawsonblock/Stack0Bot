@@ -26,6 +26,7 @@ Mutating runs validate against a staged post-patch worktree, fail closed when no
 - `AGENT_STACK_BASE_DIR` – stack root, defaults to current working directory
 - `AGENT_STACK_RUN_API_PORT` – defaults to `8788`
 - `AGENT_STACK_RUN_API_MAX_BODY_BYTES` – maximum JSON request size in bytes, defaults to `1048576`
+- `AGENT_STACK_RUN_API_BEARER` – optional inbound bearer token for local operator access
 - `GSD_RUNTIME_GATEWAY_URL` – runtime gateway URL used by model intents
 - `GSD_RUNTIME_GATEWAY_BEARER` – optional bearer token for the runtime gateway
 - `AGENT_STACK_ACTOR` – actor recorded for approvals and run ownership
@@ -41,6 +42,8 @@ Mutating runs validate against a staged post-patch worktree, fail closed when no
 ## Logging
 
 Requests and failures emit one structured JSON log line on stdout. Each record includes a request id, method, path, status, duration, and the run id when one is known.
+
+If `AGENT_STACK_RUN_API_BEARER` is not configured, this API is only safe for strictly local or otherwise trusted access.
 
 ## Supported local workflow
 

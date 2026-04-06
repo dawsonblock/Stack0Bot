@@ -14,6 +14,11 @@ test('parseSandboxCommand preserves quoted arguments without invoking a shell', 
 
 test('parseSandboxCommand rejects shell metacharacters', () => {
   assert.throws(() => parseSandboxCommand('node -e "console.log(1)"; echo bad'), /unsupported shell syntax/);
+  assert.throws(() => parseSandboxCommand('node -e "console.log(1)" && echo bad'), /unsupported shell syntax/);
+});
+
+test('parseSandboxCommand rejects unterminated quotes', () => {
+  assert.throws(() => parseSandboxCommand('node -e "console.log(1)'), /unterminated escape or quote/);
 });
 
 test('runInSandbox enforces allowlists and cwd scoping', async () => {
@@ -61,5 +66,22 @@ test('runInSandbox reports degraded network support honestly when host enforceme
     assert.equal(result.capability.networkIsolationEnforced, false);
     assert.equal(result.capability.networkAccessActual, 'degraded');
     assert.equal(result.capability.networkIsolated, false);
+  });
+});
+
+test('runInSandbox enforces timeouts for long-running commands', async () => {
+  await withTempDir(async (baseDir) => {
+    const worktreeDir = join(baseDir, 'workspace');
+    await mkdir(worktreeDir, { recursive: true });
+
+    const result = await runInSandbox({ command: 'node', args: ['-e', 'setTimeout(() => {}, 10_000)'] }, '.', {
+      worktreeDir,
+      allowNetwork: false,
+      timeoutMs: 50,
+      allowedCommands: ['node'],
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.timedOut, true);
   });
 });

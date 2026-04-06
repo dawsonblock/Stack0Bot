@@ -37,6 +37,7 @@ export type RunApiServerOptions = {
   actor: string;
   port?: number;
   maxBodyBytes?: number;
+  inboundBearerToken?: string;
   logger?: RunApiLogger;
   runtimeGateway: {
     baseUrl: string;
@@ -81,12 +82,24 @@ function requestIdFrom(req: IncomingMessage): string {
   return randomUUID();
 }
 
+function authorizationHeaderFrom(req: IncomingMessage): string | undefined {
+  const header = req.headers.authorization;
+  if (typeof header === 'string' && header.trim()) {
+    return header.trim();
+  }
+  if (Array.isArray(header) && typeof header[0] === 'string' && header[0].trim()) {
+    return header[0].trim();
+  }
+  return undefined;
+}
+
 export function resolveRunApiServerOptions(env: NodeJS.ProcessEnv = process.env): RunApiServerOptions {
   return {
     baseDir: env.AGENT_STACK_BASE_DIR || process.cwd(),
     port: Number(env.AGENT_STACK_RUN_API_PORT || '8788'),
     actor: env.AGENT_STACK_ACTOR || 'operator',
     maxBodyBytes: normalizePositiveInteger(Number(env.AGENT_STACK_RUN_API_MAX_BODY_BYTES || DEFAULT_MAX_BODY_BYTES), DEFAULT_MAX_BODY_BYTES),
+    inboundBearerToken: (env.AGENT_STACK_RUN_API_BEARER || '').trim() || undefined,
     runtimeGateway: {
       baseUrl: env.GSD_RUNTIME_GATEWAY_URL || 'http://127.0.0.1:8787',
       bearerToken: (env.GSD_RUNTIME_GATEWAY_BEARER || '').trim() || undefined,
@@ -193,6 +206,13 @@ export function createRunApiServer(options: RunApiServerOptions) {
     };
 
     try {
+      if (options.inboundBearerToken && authorizationHeaderFrom(req) !== `Bearer ${options.inboundBearerToken}`) {
+        return respond(401, { error: 'unauthorized', message: 'run-api requires a valid bearer token' }, {
+          errorCode: 'unauthorized',
+          message: 'run-api requires a valid bearer token',
+        });
+      }
+
       const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
       pathname = url.pathname;
 

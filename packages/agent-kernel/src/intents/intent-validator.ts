@@ -132,9 +132,9 @@ function validateModelIntent(intent: ModelCallIntent): void {
   if (bounded <= 0 || bounded > MAX_MODEL_TOKENS) throw new Error(`maxTokens must be between 1 and ${MAX_MODEL_TOKENS}`);
 }
 
-function validateRunCommandIntent(intent: Extract<Intent, { type: 'run_command' }>): void {
+function validateRunCommandIntent(intent: Extract<Intent, { type: 'run_command' }>): never {
   requireNonEmptyString(intent.command, 'run_command.command');
-  throw new Error('run_command is not part of the supported runtime');
+  throw new Error('run_command is reserved in the intent schema but not supported by this runtime');
 }
 
 export function validateIntent(intent: Intent): Intent {
@@ -157,17 +157,10 @@ export function validateIntent(intent: Intent): Intent {
         limit: Math.max(1, Math.min(normalized.limit ?? 50, 200)),
       };
     case 'run_command':
-      validateRunCommandIntent({
+      return validateRunCommandIntent({
         ...normalized,
         command: requireNonEmptyString(normalized.command, 'run_command.command'),
       });
-      return {
-        ...normalized,
-        command: requireNonEmptyString(normalized.command, 'run_command.command'),
-        cwd: normalized.cwd ? normalizeSafeRelativePath(normalized.cwd, 'run_command.cwd', { allowDot: true }) : '.',
-        allowNetwork: false,
-        timeoutMs: Math.max(1000, Math.min(normalized.timeoutMs ?? 60_000, 120_000)),
-      };
     case 'edit_files':
       validateEditIntent(normalized);
       return { ...normalizeEditIntent(normalized), policy: { approvalRequired: true, ...(normalized.policy ?? {}) } };

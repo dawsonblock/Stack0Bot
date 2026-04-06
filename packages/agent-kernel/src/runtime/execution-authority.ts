@@ -6,7 +6,7 @@ import { buildPatchArtifact } from '../artifacts/patch-artifact.js';
 import type { EventLog } from '../events/event-log.js';
 import { critiqueIntentCandidate } from '../intents/intent-critic.js';
 import { buildIntentPayloadSummary, getIntentMetadata } from '../intents/intent-metadata.js';
-import type { Intent, IntentResult, ExecutionContext, EditFilesIntent, ModelCallIntent } from '../intents/intent.types.js';
+import type { Intent, IntentResult, ExecutionContext, ModelCallIntent } from '../intents/intent.types.js';
 import { runInSandbox, type SandboxCommandSpec } from '@agent-stack/sandbox';
 
 export type RuntimeGatewayConfig = {
@@ -26,19 +26,11 @@ function resolveWorktreePath(worktreeDir: string, relativePath: string): string 
   return target;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function buildUnifiedDiff(beforeContent: Record<string, string | null>, intent: EditFilesIntent): string {
-  return intent.edits.map((edit) => {
-    const before = beforeContent[edit.path] ?? '';
-    const beforeLines = before.split('\n');
-    const afterLines = edit.content.split('\n');
-    const removed = beforeLines.map((line) => `-${line}`).join('\n');
-    const added = afterLines.map((line) => `+${line}`).join('\n');
-    return [`--- a/${edit.path}`, `+++ b/${edit.path}`, '@@', removed, added].join('\n');
-  }).join('\n');
+function unsupportedIntentMessage(intentType: Intent['type'], contractStatus: ReturnType<typeof getIntentMetadata>['contractStatus']): string {
+  if (contractStatus === 'reserved_unsupported') {
+    return `${intentType} is reserved in the intent schema but not supported by this runtime`;
+  }
+  return `${intentType} is not part of the supported runtime`;
 }
 
 async function callRuntimeGateway(config: RuntimeGatewayConfig, intent: ModelCallIntent): Promise<{ status: number; payload: unknown }> {
@@ -101,13 +93,14 @@ export class ExecutionAuthority {
     }
 
     if (!metadata.supportedRuntime) {
+      const message = unsupportedIntentMessage(intent.type, metadata.contractStatus);
       return {
         ok: false,
         intentType: intent.type,
-        error: `${intent.type} is not part of the supported runtime`,
+        error: message,
         errorDetail: {
           code: 'policy_violation',
-          message: `${intent.type} is not part of the supported runtime`,
+          message,
           retriable: false,
         },
       };
@@ -160,13 +153,14 @@ export class ExecutionAuthority {
         return { ok: result.ok, intentType: intent.type, data: result, artifactIds: [artifact.id], artifactPaths: [artifact.path], error: result.ok ? undefined : result.stderr || 'search failed' };
       }
       case 'run_command': {
+        const message = unsupportedIntentMessage(intent.type, metadata.contractStatus);
         return {
           ok: false,
           intentType: intent.type,
-          error: 'run_command is not part of the supported runtime',
+          error: message,
           errorDetail: {
             code: 'policy_violation',
-            message: 'run_command is not part of the supported runtime',
+            message,
             retriable: false,
           },
         };
@@ -183,16 +177,24 @@ export class ExecutionAuthority {
         }
         const patch = buildPatchArtifact({
           runId: intent.runId,
+          intentId: intent.intentId,
+          requestedBy: intent.requestedBy,
           proposedBy: this.ctx.actor,
           reason: intent.reason,
           declaredWriteSet: intent.declaredWriteSet,
           edits: intent.edits,
           beforeContent,
-          unifiedDiff: buildUnifiedDiff(beforeContent, intent),
         });
         const artifact = await this.artifacts.writeJson(intent.runId, 'patch', patch, { intentId: intent.intentId, changedFiles: patch.changedFiles });
         await this.eventLog.append(intent.runId, { type: 'artifact_written', artifactId: artifact.id, artifactKind: artifact.kind, intentId: intent.intentId });
-        return { ok: true, intentType: intent.type, data: { changedFiles: patch.changedFiles }, artifactIds: [artifact.id], artifactPaths: [artifact.path], proposed: true };
+        return {
+          ok: true,
+          intentType: intent.type,
+          data: { changedFiles: patch.changedFiles, patchId: patch.patchId, diffFormat: patch.diffFormat },
+          artifactIds: [artifact.id],
+          artifactPaths: [artifact.path],
+          proposed: true,
+        };
       }
       case 'model_call': {
         const response = await callRuntimeGateway(this.runtimeGateway, intent);

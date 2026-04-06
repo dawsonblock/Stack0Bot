@@ -23,17 +23,19 @@ test('applyPatchArtifact writes the proposed snapshots and records artifact_appl
 
     const artifact = buildPatchArtifact({
       runId: 'run-apply',
+      intentId: 'intent-apply',
+      requestedBy: 'operator',
       proposedBy: 'tester',
       reason: 'apply artifact test',
       declaredWriteSet: ['note.txt'],
       edits: [{ path: 'note.txt', content: 'after\n' }],
       beforeContent: { 'note.txt': 'before\n' },
-      unifiedDiff: ['--- a/note.txt', '+++ b/note.txt', '@@', '-before', '+after'].join('\n'),
     });
 
     const eventLog = new EventLog(baseDir);
     await applyPatchArtifact({
       artifact,
+      artifactId: 'artifact-record-1',
       actor: 'tester',
       worktreeDir,
       eventLog,
@@ -43,6 +45,8 @@ test('applyPatchArtifact writes the proposed snapshots and records artifact_appl
     assert.equal(await readFile(join(worktreeDir, 'note.txt'), 'utf8'), 'after\n');
     const events = await eventLog.readAll('run-apply');
     assert.equal(events.at(-1)?.type, 'artifact_applied');
+    assert.equal(events.at(-1)?.artifactId, 'artifact-record-1');
+    assert.equal(events.at(-1)?.patchId, artifact.patchId);
     assert.deepEqual(events.at(-1)?.changedFiles, ['note.txt']);
   });
 });
@@ -55,12 +59,13 @@ test('applyPatchArtifact rejects drifted worktree content', async () => {
 
     const artifact = buildPatchArtifact({
       runId: 'run-drift',
+      intentId: 'intent-drift',
+      requestedBy: 'operator',
       proposedBy: 'tester',
       reason: 'drift detection test',
       declaredWriteSet: ['note.txt'],
       edits: [{ path: 'note.txt', content: 'after\n' }],
       beforeContent: { 'note.txt': 'before\n' },
-      unifiedDiff: ['--- a/note.txt', '+++ b/note.txt', '@@', '-before', '+after'].join('\n'),
     });
 
     await writeFile(join(worktreeDir, 'note.txt'), 'changed elsewhere\n', 'utf8');
@@ -87,12 +92,13 @@ test('applyPatchArtifact rejects missing approval context', async () => {
 
     const artifact = buildPatchArtifact({
       runId: 'run-no-approval',
+      intentId: 'intent-no-approval',
+      requestedBy: 'operator',
       proposedBy: 'tester',
       reason: 'approval requirement test',
       declaredWriteSet: ['note.txt'],
       edits: [{ path: 'note.txt', content: 'after\n' }],
       beforeContent: { 'note.txt': 'before\n' },
-      unifiedDiff: ['--- a/note.txt', '+++ b/note.txt', '@@', '-before', '+after'].join('\n'),
     });
 
     const eventLog = new EventLog(baseDir);

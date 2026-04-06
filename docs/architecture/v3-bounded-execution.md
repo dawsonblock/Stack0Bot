@@ -5,17 +5,17 @@ This stack enforces a single execution authority for intent handling and a singl
 ## Core rules
 
 - The shell talks to the system through `services/run-api` only.
-- `execution-authority.ts` may read files, search code, run bounded commands, call the runtime gateway, or propose a patch artifact.
+- `execution-authority.ts` may read files, search code through the bounded `rg` sandbox path, call the runtime gateway, or propose a patch artifact.
 - Actual file mutation happens only in `apply-artifact.ts`, and only after explicit approval.
 - Command execution is delegated to `services/sandbox`, which acts as a restricted subprocess runner with cwd scoping, command allowlists, timeout/output bounds, and honest degraded network reporting rather than a host-isolated sandbox.
-- `run_command` is not part of the supported runtime path; the live system rejects it rather than treating it as an operator feature.
+- `run_command` is a reserved schema residue, not a supported runtime feature; the live system rejects it rather than treating it as an operator feature.
 - Model calls are delegated to `services/runtime-gateway`.
 - Every action emits an event into `storage/runs/<runId>/events.jsonl`
 - Every mutating action produces an artifact under `storage/runs/<runId>/artifacts/`
 - Every proposed patch also produces a `review-bundle` artifact that captures the patch reference, validator results, override state, and apply preconditions.
 - Promotion stages the proposed post-patch worktree and runs executable validators before a run can become `validated`
 - Mutating runs fail closed when no executable validation path exists, unless an explicit override is recorded
-- The `security-validator` is lightweight pattern screening, not a hardened security policy engine.
+- The `security-validator` is heuristic added-line and risky-target screening, not a hardened security policy engine.
 - Apply writes into `workspace/run-<runId>/`, not into the repository root
 - Finalization writes summary artifacts only and does not mutate code
 

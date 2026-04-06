@@ -8,13 +8,16 @@ test('intent metadata exposes runtime support and required fields', () => {
     supportedRuntime: true,
     mutating: false,
     requiredFields: ['path'],
+    contractStatus: 'supported',
   });
   assert.deepEqual(getIntentMetadata('edit_files'), {
     supportedRuntime: true,
     mutating: true,
     requiredFields: ['reason', 'declaredWriteSet', 'edits'],
+    contractStatus: 'supported',
   });
   assert.equal(getIntentMetadata('run_command').supportedRuntime, false);
+  assert.equal(getIntentMetadata('run_command').contractStatus, 'reserved_unsupported');
 });
 
 test('buildIntentPayloadSummary shapes read-only and mutating intents deterministically', () => {

@@ -1,15 +1,20 @@
-export const INTENT_TYPES = [
+export const SUPPORTED_INTENT_TYPES = [
   'read_file',
   'search_code',
-  'run_command',
   'edit_files',
   'model_call',
   'ask_user',
   'finalize',
 ] as const;
 
+export const RESERVED_UNSUPPORTED_INTENT_TYPES = ['run_command'] as const;
+
+export const INTENT_TYPES = [...SUPPORTED_INTENT_TYPES, ...RESERVED_UNSUPPORTED_INTENT_TYPES] as const;
+
 export type IntentType = (typeof INTENT_TYPES)[number];
-export type ReadonlyIntentType = 'read_file' | 'search_code' | 'run_command' | 'model_call' | 'ask_user';
+export type SupportedIntentType = (typeof SUPPORTED_INTENT_TYPES)[number];
+export type ReservedUnsupportedIntentType = (typeof RESERVED_UNSUPPORTED_INTENT_TYPES)[number];
+export type ReadonlyIntentType = 'read_file' | 'search_code' | 'model_call' | 'ask_user';
 export type MutatingIntentType = 'edit_files' | 'finalize';
 
 export type IntentPolicy = {

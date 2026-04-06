@@ -36,9 +36,11 @@ shell → run-api → agent-kernel → runtime-gateway → oMLX
 - run lifecycle is exposed through one operator-facing API
 - approval, apply, and complete remain separate actions
 - the shell does not bypass the bounded kernel
+- optional inbound bearer auth can be enabled for local operator use
 
 Boundaries:
 
 - This is a local, single-host API. There is no background queue, worker pool, or distributed coordinator.
+- If inbound auth is not configured, this API is only safe for strictly local or otherwise trusted access.
 - Run state is file-backed under `storage/runs/`, and per-run worktrees live under `workspace/run-<runId>/`.
 - The API exposes lifecycle steps; it does not claim production orchestration semantics on its own.

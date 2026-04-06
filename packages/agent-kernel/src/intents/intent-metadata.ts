@@ -1,9 +1,12 @@
 import type { Intent, IntentType } from './intent.types.js';
 
+export type IntentContractStatus = 'supported' | 'reserved_unsupported';
+
 export type IntentMetadata = {
   supportedRuntime: boolean;
   mutating: boolean;
   requiredFields: string[];
+  contractStatus: IntentContractStatus;
 };
 
 const INTENT_METADATA: Record<IntentType, IntentMetadata> = {
@@ -11,36 +14,43 @@ const INTENT_METADATA: Record<IntentType, IntentMetadata> = {
     supportedRuntime: true,
     mutating: false,
     requiredFields: ['path'],
+    contractStatus: 'supported',
   },
   search_code: {
     supportedRuntime: true,
     mutating: false,
     requiredFields: ['query'],
+    contractStatus: 'supported',
   },
   run_command: {
     supportedRuntime: false,
     mutating: false,
     requiredFields: ['command'],
+    contractStatus: 'reserved_unsupported',
   },
   edit_files: {
     supportedRuntime: true,
     mutating: true,
     requiredFields: ['reason', 'declaredWriteSet', 'edits'],
+    contractStatus: 'supported',
   },
   model_call: {
     supportedRuntime: true,
     mutating: false,
     requiredFields: ['model', 'messages'],
+    contractStatus: 'supported',
   },
   ask_user: {
     supportedRuntime: true,
     mutating: false,
     requiredFields: ['prompt'],
+    contractStatus: 'supported',
   },
   finalize: {
     supportedRuntime: true,
     mutating: true,
     requiredFields: ['summary'],
+    contractStatus: 'supported',
   },
 };
 

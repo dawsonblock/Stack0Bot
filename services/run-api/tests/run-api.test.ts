@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import { createRunApiServer } from '../src/server.js';
-import { listen, requestJson, withTempDir } from '../../../tests/core-test-helpers.ts';
+import { listen, requestJson, runCliJson, withTempDir } from '../../../tests/core-test-helpers.ts';
+
+const shellCliPath = resolve(process.cwd(), 'apps/shell/bin/agent-stack-run.mjs');
 
 function buildExecutableEditIntent(runId: string) {
   return {
@@ -196,7 +198,7 @@ test('run-api classifies missing and conflicting lifecycle operations clearly', 
       });
       assert.equal(invalidRunCommand.status, 400);
       assert.equal(invalidRunCommand.body.error, 'invalid_intent');
-      assert.match(invalidRunCommand.body.message, /not part of the supported runtime/i);
+      assert.match(invalidRunCommand.body.message, /reserved in the intent schema/i);
     } finally {
       await listener.close();
     }
@@ -342,6 +344,41 @@ test('run-api rejects oversized request bodies before dispatching them', async (
       assert.equal(rejectedLog?.level, 'warn');
       assert.equal(rejectedLog?.errorCode, 'request_too_large');
       assert.equal(rejectedLog?.path, '/v1/runs');
+    } finally {
+      await listener.close();
+    }
+  });
+});
+
+test('run-api optionally requires a bearer token and the shell CLI can forward it', async () => {
+  await withTempDir(async (baseDir) => {
+    const server = createRunApiServer({
+      baseDir,
+      actor: 'api-tester',
+      inboundBearerToken: 'local-operator-token',
+      logger: () => {},
+      runtimeGateway: {
+        baseUrl: 'http://127.0.0.1:9',
+        maxTokensDefault: 256,
+      },
+    });
+    const listener = await listen(server);
+    try {
+      const unauthorized = await requestJson(listener.baseUrl, '/healthz');
+      assert.equal(unauthorized.status, 401);
+      assert.equal(unauthorized.body.error, 'unauthorized');
+
+      const authorized = await requestJson(listener.baseUrl, '/healthz', {
+        headers: { authorization: 'Bearer local-operator-token' },
+      });
+      assert.equal(authorized.status, 200);
+
+      const listed = await runCliJson(shellCliPath, ['list'], {
+        ...process.env,
+        AGENT_STACK_RUN_API_URL: listener.baseUrl,
+        AGENT_STACK_RUN_API_BEARER: 'local-operator-token',
+      });
+      assert.deepEqual(listed.runs, []);
     } finally {
       await listener.close();
     }

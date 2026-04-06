@@ -2,15 +2,16 @@
 import process from 'node:process';
 
 const gateway = process.env.GSD_RUNTIME_GATEWAY_URL || 'http://127.0.0.1:8787';
-const token = (process.env.GSD_RUNTIME_GATEWAY_BEARER || '').trim();
+const gatewayToken = (process.env.GSD_RUNTIME_GATEWAY_BEARER || '').trim();
+const runApiToken = (process.env.AGENT_STACK_RUN_API_BEARER || '').trim();
 const command = process.argv[2] || 'status';
 const runApi = process.env.AGENT_STACK_RUN_API_URL || 'http://127.0.0.1:8788';
 
-const headers = {};
-if (token) headers.authorization = `Bearer ${token}`;
-
 async function get(base, path) {
-  const res = await fetch(`${base}${path}`, { headers });
+  const headers = {};
+  const token = base === runApi ? runApiToken : gatewayToken;
+  if (token) headers.authorization = `Bearer ${token}`;
+  const res = await fetch(`${base}${path}`, { headers: Object.keys(headers).length > 0 ? headers : undefined });
   const text = await res.text();
   let payload = text;
   try { payload = JSON.parse(text); } catch {}
