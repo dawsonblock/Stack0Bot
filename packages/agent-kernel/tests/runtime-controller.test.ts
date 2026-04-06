@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { RuntimeController } from '../src/runtime/runtime-controller.js';
@@ -69,6 +69,17 @@ function buildNonExecutableEditIntent(runId: string, override?: { allowMissingEx
   };
 }
 
+function buildReadFileIntent(runId: string, path: string) {
+  return {
+    type: 'read_file' as const,
+    runId,
+    intentId: `${runId}-intent`,
+    requestedBy: 'operator',
+    createdAt: new Date().toISOString(),
+    path,
+  };
+}
+
 function makeController(baseDir: string) {
   return new RuntimeController({
     baseDir,
@@ -86,6 +97,7 @@ test('mutating runs execute validators, remain unapplied until approval, and fin
     const record = await controller.startRun(buildExecutableEditIntent('run-executable'));
 
     assert.equal(record.state, 'validated');
+    assert.equal(record.nextAction, 'await_operator_approval');
     assert.equal(record.validation?.executedValidatorCount, 2);
     assert.equal(record.approval, undefined);
     assert.ok(record.reviewBundleArtifactId);
@@ -96,6 +108,14 @@ test('mutating runs execute validators, remain unapplied until approval, and fin
 
     const events = await controller.getEvents(record.runId);
     assert.equal(events.filter((event) => event.type === 'validator_executed').length, 2);
+    const mutatingIntentEvent = events.find((event) => event.type === 'intent_received');
+    assert.deepEqual(mutatingIntentEvent?.payload, {
+      reason: 'Create a bounded test fixture with executable validation commands',
+      declaredWriteSet: ['package.json', 'greeting.js', 'greeting.test.js'],
+      editCount: 3,
+      cwd: '.',
+      validationOverride: false,
+    });
 
     const artifacts = await controller.getArtifacts(record.runId);
     assert(artifacts.some((artifact) => artifact.kind === 'patch'));
@@ -114,12 +134,17 @@ test('mutating runs execute validators, remain unapplied until approval, and fin
     assert.equal(replayBeforeApply.reviewBundleArtifactIds.length, 1);
 
     await controller.approve(record.runId, { actor: 'operator', reason: 'looks good' });
+    const approved = await controller.getRun(record.runId);
+    assert.equal(approved?.nextAction, 'apply_patch');
+
     const applied = await controller.applyApproved(record.runId);
     assert.equal(applied.state, 'applied');
+    assert.equal(applied.nextAction, 'complete_run');
     const beforeComplete = await readFile(join(worktreeDir, 'greeting.js'), 'utf8');
 
     const completed = await controller.completeApplied(record.runId, 'done');
     assert.equal(completed.state, 'completed');
+    assert.equal(completed.nextAction, 'none');
     const afterComplete = await readFile(join(worktreeDir, 'greeting.js'), 'utf8');
     assert.equal(afterComplete, beforeComplete);
 
@@ -128,6 +153,31 @@ test('mutating runs execute validators, remain unapplied until approval, and fin
     assert.equal(replayAfterComplete.outcome, 'completed');
     assert.equal(replayAfterComplete.applyStatus, 'applied');
     assert.equal(replayAfterComplete.reviewBundleArtifactIds.length, 1);
+
+    const artifactsAfterComplete = await controller.getArtifacts(record.runId);
+    const summaryArtifact = artifactsAfterComplete.find((artifact) => artifact.kind === 'summary');
+    assert(summaryArtifact);
+    const summaryPayload = JSON.parse(await readFile(summaryArtifact.path, 'utf8'));
+    const finalEvents = await controller.getEvents(record.runId);
+    assert.deepEqual(summaryPayload.appliedArtifactIds, artifactsAfterComplete.filter((artifact) => artifact.kind === 'patch').map((artifact) => artifact.id));
+    assert.deepEqual(summaryPayload.reviewArtifactIds, artifactsAfterComplete.filter((artifact) => artifact.kind === 'review-bundle').map((artifact) => artifact.id));
+    assert.equal(summaryPayload.commandCount, finalEvents.filter((event) => event.type === 'command_executed').length);
+    assert.equal(summaryPayload.modelCallCount, finalEvents.filter((event) => event.type === 'model_called').length);
+
+    const transitions = finalEvents
+      .filter((event) => event.type === 'state_transition')
+      .map((event) => `${event.from}->${event.to}`);
+    assert.deepEqual(transitions, [
+      'created->planning',
+      'planning->awaiting_action',
+      'awaiting_action->executing',
+      'executing->proposed',
+      'proposed->awaiting_approval',
+      'awaiting_approval->validated',
+      'validated->approved',
+      'approved->applied',
+      'applied->completed',
+    ]);
   });
 });
 
@@ -148,6 +198,83 @@ test('mutating runs fail closed when no executable validation path exists', asyn
     assert.equal(replay.applyStatus, 'not_requested');
     assert.equal(replay.reviewBundleArtifactIds.length, 1);
     assert.match(replay.failureReason ?? '', /executable validation path/i);
+
+    const events = await controller.getEvents(record.runId);
+    assert.equal(events.filter((event) => event.type === 'intent_received').length, 1);
+    assert.equal(events.filter((event) => event.type === 'execution_started').length, 1);
+    assert.equal(events.filter((event) => event.type === 'execution_finished').length, 1);
+  });
+});
+
+test('read-only runs emit execution lifecycle events in causal order', async () => {
+  await withTempDir(async (baseDir) => {
+    const controller = makeController(baseDir);
+    const runId = 'run-read-success';
+    const worktreeDir = controller.worktreeFor(runId);
+    await mkdir(worktreeDir, { recursive: true });
+    await writeFile(join(worktreeDir, 'note.txt'), 'hello\n', 'utf8');
+
+    const record = await controller.startRun(buildReadFileIntent(runId, 'note.txt'));
+    assert.equal(record.state, 'completed');
+    assert.equal(record.nextAction, 'none');
+
+    const events = await controller.getEvents(runId);
+    const eventTypes = events.map((event) => event.type);
+    const readIntentEvent = events.find((event) => event.type === 'intent_received');
+    const executionStartedIndex = eventTypes.indexOf('execution_started');
+    const intentReceivedIndex = eventTypes.indexOf('intent_received');
+    const executionFinishedIndex = eventTypes.indexOf('execution_finished');
+    const runCompletedIndex = eventTypes.indexOf('run_completed');
+
+    assert.ok(executionStartedIndex >= 0);
+    assert.ok(intentReceivedIndex > executionStartedIndex);
+    assert.ok(executionFinishedIndex > intentReceivedIndex);
+    assert.ok(runCompletedIndex > executionFinishedIndex);
+    assert.deepEqual(readIntentEvent?.payload, { path: 'note.txt' });
+
+    const executionFinished = events[executionFinishedIndex];
+    assert.equal(executionFinished?.ok, true);
+    assert.equal(executionFinished?.intentType, 'read_file');
+    assert.deepEqual(executionFinished?.artifactIds, [record.result?.artifactIds?.[0]]);
+  });
+});
+
+test('executor failures emit failure events, persist failed state, and stop cleanly', async () => {
+  await withTempDir(async (baseDir) => {
+    const controller = makeController(baseDir);
+    const runId = 'run-read-missing';
+
+    const record = await controller.startRun(buildReadFileIntent(runId, 'missing.txt'));
+    assert.equal(record.state, 'failed');
+    assert.equal(record.result?.ok, false);
+    assert.equal(record.result?.errorDetail?.code, 'execution_failed');
+
+    const events = await controller.getEvents(runId);
+    const eventTypes = events.map((event) => event.type);
+    const executionStartedIndex = eventTypes.indexOf('execution_started');
+    const executionFinishedIndex = eventTypes.indexOf('execution_finished');
+    const failedTransitionIndex = events.findIndex((event) => event.type === 'state_transition' && event.from === 'executing' && event.to === 'failed');
+    const runFailedIndex = eventTypes.indexOf('run_failed');
+
+    assert.ok(executionStartedIndex >= 0);
+    assert.ok(executionFinishedIndex > executionStartedIndex);
+    assert.ok(failedTransitionIndex > executionFinishedIndex);
+    assert.ok(runFailedIndex > failedTransitionIndex);
+
+    const executionFinished = events[executionFinishedIndex];
+    assert.equal(executionFinished?.ok, false);
+    assert.equal(executionFinished?.intentType, 'read_file');
+    assert.deepEqual(executionFinished?.artifactIds, []);
+    assert.equal((executionFinished?.errorDetail as { code?: string } | undefined)?.code, 'execution_failed');
+    assert.match(String(executionFinished?.error ?? ''), /missing\.txt|ENOENT|no such file/i);
+    assert.equal(events.filter((event) => event.type === 'intent_received').length, 1);
+    assert.equal(events.filter((event) => event.type === 'execution_started').length, 1);
+    assert.equal(events.filter((event) => event.type === 'execution_finished').length, 1);
+
+    const replay = await controller.getReplay(runId);
+    assert.equal(replay.currentState, 'failed');
+    assert.equal(replay.outcome, 'failed');
+    assert.match(replay.failureReason ?? '', /missing\.txt|ENOENT|no such file/i);
   });
 });
 
@@ -199,6 +326,25 @@ test('getRun reconciles persisted state from events and artifacts when run-recor
     assert.equal(reconciled.validation?.executedValidatorCount, 2);
     assert.ok(reconciled.patchArtifactId);
     assert.ok(reconciled.reviewBundleArtifactId);
+  });
+});
+
+test('getRun and getReplay tolerate partial event records in the log', async () => {
+  await withTempDir(async (baseDir) => {
+    const controller = makeController(baseDir);
+    const record = await controller.startRun(buildExecutableEditIntent('run-partial-events'));
+    const eventsPath = join(baseDir, 'storage', 'runs', record.runId, 'events.jsonl');
+
+    await appendFile(eventsPath, 'null\n{"unexpected":true}\n', 'utf8');
+
+    const replay = await controller.getReplay(record.runId);
+    assert.equal(replay.currentState, 'validated');
+    assert.equal(replay.outcome, 'running');
+
+    const reconciled = await controller.getRun(record.runId);
+    assert(reconciled);
+    assert.equal(reconciled.state, 'validated');
+    assert.equal(reconciled.validation?.ok, true);
   });
 });
 

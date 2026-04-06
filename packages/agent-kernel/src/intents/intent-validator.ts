@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { normalize } from 'node:path';
 import { INTENT_TYPES, type Intent, type EditFilesIntent, type ModelCallIntent, type ValidationOverride } from './intent.types.js';
+import { getIntentMetadata } from './intent-metadata.js';
+import { utcNowIso } from '../time.js';
 
 export const MAX_EDIT_COUNT = 32;
 export const MAX_EDIT_BYTES = 512 * 1024;
@@ -13,10 +16,14 @@ function ensureKnownType(value: string): void {
 }
 
 function requireNonEmptyString(value: unknown, fieldName: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
+  if (typeof value !== 'string') {
     throw new Error(`${fieldName} is required`);
   }
-  return value;
+  const normalized = value.trim();
+  if (normalized === '') {
+    throw new Error(`${fieldName} is required`);
+  }
+  return normalized;
 }
 
 function isSafeRelativePath(input: unknown): input is string {
@@ -26,14 +33,40 @@ function isSafeRelativePath(input: unknown): input is string {
   return true;
 }
 
+function normalizeSafeRelativePath(input: unknown, fieldName: string, options: { allowDot?: boolean } = {}): string {
+  const value = requireNonEmptyString(input, fieldName);
+  const normalized = normalize(value).replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!options.allowDot && normalized === '.') {
+    throw new Error(`unsafe ${fieldName}: ${value}`);
+  }
+  if (normalized.startsWith('/') || normalized === '..' || normalized.startsWith('../')) {
+    throw new Error(`unsafe ${fieldName}: ${value}`);
+  }
+  return normalized;
+}
+
 function normalizeBaseFields(intent: Intent): Intent {
   return {
     ...intent,
-    intentId: intent.intentId || randomUUID(),
-    requestedBy: intent.requestedBy || 'unknown',
-    createdAt: intent.createdAt || new Date().toISOString(),
+    type: requireNonEmptyString(intent.type, 'intent.type') as Intent['type'],
+    runId: requireNonEmptyString(intent.runId, 'runId'),
+    intentId: typeof intent.intentId === 'string' && intent.intentId.trim() ? intent.intentId.trim() : randomUUID(),
+    requestedBy: typeof intent.requestedBy === 'string' && intent.requestedBy.trim() ? intent.requestedBy.trim() : 'unknown',
+    createdAt: typeof intent.createdAt === 'string' && intent.createdAt.trim() ? intent.createdAt.trim() : utcNowIso(),
     policy: intent.policy ?? {},
   } as Intent;
+}
+
+function assertRequiredFields(intent: Record<string, unknown>, prefix: string, fields: string[]): void {
+  for (const field of fields) {
+    const value = intent[field];
+    if (value === undefined || value === null) {
+      throw new Error(`${prefix}.${field} is required`);
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      throw new Error(`${prefix}.${field} is required`);
+    }
+  }
 }
 
 function validateValidationOverride(override: ValidationOverride | undefined): void {
@@ -68,6 +101,29 @@ function validateEditIntent(intent: EditFilesIntent): void {
   validateValidationOverride(intent.validationOverride);
 }
 
+function normalizeEditIntent(intent: EditFilesIntent): EditFilesIntent {
+  const declaredWriteSet = intent.declaredWriteSet.map((path, index) => normalizeSafeRelativePath(path, `edit_files.declaredWriteSet[${index}]`));
+  const declared = new Set(declaredWriteSet);
+  const edits = intent.edits.map((edit, index) => {
+    const path = normalizeSafeRelativePath(edit.path, `edit_files.edits[${index}].path`);
+    if (!declared.has(path)) {
+      throw new Error(`edit path not declared in write set: ${path}`);
+    }
+    return {
+      ...edit,
+      path,
+    };
+  });
+
+  return {
+    ...intent,
+    reason: requireNonEmptyString(intent.reason, 'edit_files.reason'),
+    declaredWriteSet,
+    edits,
+    cwd: intent.cwd ? normalizeSafeRelativePath(intent.cwd, 'edit_files.cwd', { allowDot: true }) : '.',
+  };
+}
+
 function validateModelIntent(intent: ModelCallIntent): void {
   requireNonEmptyString(intent.model, 'model_call.model');
   if (!Array.isArray(intent.messages) || intent.messages.length === 0) throw new Error('model_call.messages must not be empty');
@@ -82,34 +138,53 @@ function validateRunCommandIntent(intent: Extract<Intent, { type: 'run_command' 
 }
 
 export function validateIntent(intent: Intent): Intent {
-  requireNonEmptyString(intent.type, 'intent.type');
-  ensureKnownType(intent.type);
   const normalized = normalizeBaseFields(intent);
-  requireNonEmptyString(normalized.runId, 'runId');
+  ensureKnownType(normalized.type);
+  const metadata = getIntentMetadata(normalized.type);
+  assertRequiredFields(normalized as Record<string, unknown>, normalized.type, metadata.requiredFields);
 
   switch (normalized.type) {
     case 'read_file':
-      if (!isSafeRelativePath(normalized.path)) throw new Error(`unsafe read path: ${normalized.path}`);
-      return normalized;
+      return {
+        ...normalized,
+        path: normalizeSafeRelativePath(normalized.path, 'read_file.path'),
+      };
     case 'search_code':
-      requireNonEmptyString(normalized.query, 'search_code.query');
-      if (normalized.cwd && !isSafeRelativePath(normalized.cwd) && normalized.cwd !== '.') throw new Error(`unsafe cwd: ${normalized.cwd}`);
-      return { ...normalized, cwd: normalized.cwd ?? '.', limit: Math.max(1, Math.min(normalized.limit ?? 50, 200)) };
+      return {
+        ...normalized,
+        query: requireNonEmptyString(normalized.query, 'search_code.query'),
+        cwd: normalized.cwd ? normalizeSafeRelativePath(normalized.cwd, 'search_code.cwd', { allowDot: true }) : '.',
+        limit: Math.max(1, Math.min(normalized.limit ?? 50, 200)),
+      };
     case 'run_command':
-      if (normalized.cwd && !isSafeRelativePath(normalized.cwd) && normalized.cwd !== '.') throw new Error(`unsafe cwd: ${normalized.cwd}`);
-      validateRunCommandIntent(normalized);
-      return { ...normalized, cwd: normalized.cwd ?? '.', allowNetwork: false, timeoutMs: Math.max(1000, Math.min(normalized.timeoutMs ?? 60_000, 120_000)) };
+      validateRunCommandIntent({
+        ...normalized,
+        command: requireNonEmptyString(normalized.command, 'run_command.command'),
+      });
+      return {
+        ...normalized,
+        command: requireNonEmptyString(normalized.command, 'run_command.command'),
+        cwd: normalized.cwd ? normalizeSafeRelativePath(normalized.cwd, 'run_command.cwd', { allowDot: true }) : '.',
+        allowNetwork: false,
+        timeoutMs: Math.max(1000, Math.min(normalized.timeoutMs ?? 60_000, 120_000)),
+      };
     case 'edit_files':
       validateEditIntent(normalized);
-      return { ...normalized, cwd: normalized.cwd ?? '.', policy: { approvalRequired: true, ...(normalized.policy ?? {}) } };
+      return { ...normalizeEditIntent(normalized), policy: { approvalRequired: true, ...(normalized.policy ?? {}) } };
     case 'model_call':
       validateModelIntent(normalized);
-      return { ...normalized, maxTokens: Math.min(normalized.maxTokens ?? 2048, MAX_MODEL_TOKENS) };
+      return {
+        ...normalized,
+        model: requireNonEmptyString(normalized.model, 'model_call.model'),
+        maxTokens: Math.min(normalized.maxTokens ?? 2048, MAX_MODEL_TOKENS),
+      };
     case 'ask_user':
-      requireNonEmptyString(normalized.prompt, 'ask_user.prompt');
-      return normalized;
+      return { ...normalized, prompt: requireNonEmptyString(normalized.prompt, 'ask_user.prompt') };
     case 'finalize':
-      requireNonEmptyString(normalized.summary, 'finalize.summary');
-      return { ...normalized, policy: { approvalRequired: true, ...(normalized.policy ?? {}) } };
+      return {
+        ...normalized,
+        summary: requireNonEmptyString(normalized.summary, 'finalize.summary'),
+        policy: { approvalRequired: true, ...(normalized.policy ?? {}) },
+      };
   }
 }

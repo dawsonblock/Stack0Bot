@@ -41,15 +41,22 @@ export class RunStateMachine {
   }
 
   transition(next: RunState): RunState {
-    return this.transitionOrThrow(next);
+    return this.assertTransition(next);
   }
 
-  transitionOrThrow(next: RunState, reason?: string): RunState {
-    if (!this.canTransition(next)) {
-      throw new Error(`invalid transition: ${this.state} -> ${next}${reason ? ` (${reason})` : ''}`);
+  assertTransition(next: RunState, reason?: string): RunState {
+    const from = this.state;
+    const allowed = TRANSITIONS[from];
+    if (!allowed.includes(next)) {
+      const allowedList = allowed.length > 0 ? allowed.join(', ') : 'none';
+      throw new Error(`invalid transition: current=${from} attempted=${next} allowed=${allowedList}${reason ? ` (${reason})` : ''}`);
     }
     this.state = next;
     return this.state;
+  }
+
+  transitionOrThrow(next: RunState, reason?: string): RunState {
+    return this.assertTransition(next, reason);
   }
 
   isTerminal(): boolean {

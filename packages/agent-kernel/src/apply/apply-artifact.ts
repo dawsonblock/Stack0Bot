@@ -21,7 +21,12 @@ export async function applyPatchArtifact(args: {
   worktreeDir: string;
   actor: string;
   eventLog: EventLog;
+  approval?: { approved: boolean; actor: string; at: string; reason?: string };
 }): Promise<void> {
+  if (!args.approval?.approved) {
+    throw new RunConflictError('approval_required', 'apply requires explicit approved context');
+  }
+
   for (const snapshot of args.artifact.snapshots) {
     const target = resolveWorktreePath(args.worktreeDir, snapshot.path);
     let currentContent: string | null = null;
@@ -42,6 +47,7 @@ export async function applyPatchArtifact(args: {
     type: 'artifact_applied',
     artifactId: args.artifact.patchId,
     actor: args.actor,
+    approvedBy: args.approval.actor,
     changedFiles: args.artifact.changedFiles,
   });
 }

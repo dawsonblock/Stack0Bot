@@ -1,5 +1,7 @@
 export type AgentEventType =
   | 'run_created'
+  | 'execution_started'
+  | 'execution_finished'
   | 'intent_received'
   | 'intent_validated'
   | 'intent_rejected'

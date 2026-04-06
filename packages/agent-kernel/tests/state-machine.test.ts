@@ -25,8 +25,17 @@ rejected.transition('failed');
 assert.equal(rejected.current, 'failed');
 
 const invalid = new RunStateMachine('validated');
-assert.throws(() => invalid.transition('applied'));
-assert.throws(() => invalid.transition('completed'));
+assert.throws(
+	() => invalid.transition('applied'),
+	/current=validated attempted=applied allowed=approved, rejected, failed/,
+);
+assert.throws(
+	() => invalid.transition('completed'),
+	/current=validated attempted=completed allowed=approved, rejected, failed/,
+);
 
 const terminal = new RunStateMachine('completed');
-assert.throws(() => terminal.transition('failed'));
+assert.throws(
+	() => terminal.transition('failed'),
+	/current=completed attempted=failed allowed=none/,
+);

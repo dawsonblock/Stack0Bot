@@ -4,6 +4,8 @@ import { join, relative, resolve } from 'node:path';
 import type { ArtifactStore } from '../artifacts/artifact-store.js';
 import { buildPatchArtifact } from '../artifacts/patch-artifact.js';
 import type { EventLog } from '../events/event-log.js';
+import { critiqueIntentCandidate } from '../intents/intent-critic.js';
+import { buildIntentPayloadSummary, getIntentMetadata } from '../intents/intent-metadata.js';
 import type { Intent, IntentResult, ExecutionContext, EditFilesIntent, ModelCallIntent } from '../intents/intent.types.js';
 import { runInSandbox, type SandboxCommandSpec } from '@agent-stack/sandbox';
 
@@ -73,12 +75,43 @@ export class ExecutionAuthority {
   ) {}
 
   async execute(intent: Intent): Promise<IntentResult> {
+    const metadata = getIntentMetadata(intent.type);
+    const critique = critiqueIntentCandidate(intent);
+    const blockingIssues = critique.issues.filter((issue) => issue.code !== 'approval_context_required');
     await this.eventLog.append(intent.runId, {
       type: 'intent_received',
       actor: this.ctx.actor,
       intentId: intent.intentId,
       intentType: intent.type,
+      payload: buildIntentPayloadSummary(intent),
     });
+
+    if (blockingIssues.length > 0) {
+      return {
+        ok: false,
+        intentType: intent.type,
+        data: { issues: blockingIssues },
+        error: blockingIssues[0]?.message ?? 'intent rejected at execution boundary',
+        errorDetail: {
+          code: 'validation_failed',
+          message: blockingIssues[0]?.message ?? 'intent rejected at execution boundary',
+          retriable: false,
+        },
+      };
+    }
+
+    if (!metadata.supportedRuntime) {
+      return {
+        ok: false,
+        intentType: intent.type,
+        error: `${intent.type} is not part of the supported runtime`,
+        errorDetail: {
+          code: 'policy_violation',
+          message: `${intent.type} is not part of the supported runtime`,
+          retriable: false,
+        },
+      };
+    }
 
     switch (intent.type) {
       case 'read_file': {
@@ -184,6 +217,8 @@ export class ExecutionAuthority {
             choices: intent.choices ?? [],
             requiresHuman: true,
           },
+          artifactIds: [],
+          artifactPaths: [],
         };
       }
       case 'finalize': {

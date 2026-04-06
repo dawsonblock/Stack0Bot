@@ -19,7 +19,9 @@ import { LintValidator } from '../promotion/validators/lint-validator.js';
 import { DiffValidator } from '../promotion/validators/diff-validator.js';
 import { SecurityValidator } from '../promotion/validators/security-validator.js';
 import { ExecutionAuthority, type RuntimeGatewayConfig } from './execution-authority.js';
+import { selectNextAction, type RuntimeNextAction } from './next-action.js';
 import { RunStateMachine, type RunState } from './state-machine.js';
+import { utcNowIso } from '../time.js';
 
 export type RuntimeControllerOptions = {
   baseDir: string;
@@ -30,6 +32,7 @@ export type RuntimeControllerOptions = {
 export type RunRecord = {
   runId: string;
   state: RunState;
+  nextAction?: RuntimeNextAction;
   result?: IntentResult;
   validation?: PromotionDecision;
   validationOverrideRequested?: ValidationOverride;
@@ -103,13 +106,13 @@ export class RuntimeController {
     const owner = {
       pid: process.pid,
       actor: this.options.actor,
-      acquiredAt: new Date().toISOString(),
-      heartbeatAt: new Date().toISOString(),
+      acquiredAt: utcNowIso(),
+      heartbeatAt: utcNowIso(),
     };
     const deadline = Date.now() + RUN_LOCK_WAIT_MS;
 
     const writeOwner = async () => {
-      owner.heartbeatAt = new Date().toISOString();
+      owner.heartbeatAt = utcNowIso();
       await writeFile(lockInfoPath, JSON.stringify(owner, null, 2), 'utf8');
     };
 
@@ -163,19 +166,24 @@ export class RuntimeController {
     }
 
     const replay = replayRun(events);
-    const approvalEvent = [...events].reverse().find((event) => event.type === 'approval_recorded');
-    const validationEvent = [...events].reverse().find((event) => event.type === 'promotion_evaluated');
+    const approvalEvent = [...events].reverse().find((event) => Boolean(event) && typeof event === 'object' && !Array.isArray(event) && event.type === 'approval_recorded');
+    const validationEvent = [...events].reverse().find((event) => Boolean(event) && typeof event === 'object' && !Array.isArray(event) && event.type === 'promotion_evaluated');
     const patchArtifactId = [...artifacts].reverse().find((artifact) => artifact.kind === 'patch')?.id;
     const reviewBundleArtifactId = [...artifacts].reverse().find((artifact) => artifact.kind === 'review-bundle')?.id;
     const baseRecord: RunRecord = record ?? {
       runId,
       state: replay.currentState as RunState,
-      startedAt: events[0]?.timestamp ?? new Date().toISOString(),
+      startedAt: events[0]?.timestamp ?? utcNowIso(),
     };
 
     return {
       ...baseRecord,
       state: replay.currentState as RunState,
+      nextAction: replay.intentType
+        ? selectNextAction({ currentState: replay.currentState as RunState, intentType: replay.intentType as Intent['type'] })
+        : baseRecord.result?.intentType
+          ? selectNextAction({ currentState: replay.currentState as RunState, intentType: baseRecord.result.intentType })
+        : baseRecord.nextAction,
       patchArtifactId: patchArtifactId ?? baseRecord.patchArtifactId,
       reviewBundleArtifactId: reviewBundleArtifactId ?? baseRecord.reviewBundleArtifactId,
       approval: approvalEvent && typeof approvalEvent.approved === 'boolean'
@@ -229,6 +237,25 @@ export class RuntimeController {
     const path = this.runRecordPath(record.runId);
     await mkdir(join(this.options.baseDir, 'storage', 'runs', record.runId), { recursive: true });
     await writeFile(path, JSON.stringify(record, null, 2), 'utf8');
+  }
+
+  private async updateNextAction(record: RunRecord, intentType: Intent['type']): Promise<void> {
+    record.nextAction = selectNextAction({ currentState: record.state, intentType });
+    await this.saveRun(record);
+  }
+
+  private async transitionRunState(args: {
+    record: RunRecord;
+    state: RunStateMachine;
+    next: RunState;
+    afterSave?: () => Promise<void>;
+  }): Promise<void> {
+    const from = args.state.current;
+    args.state.assertTransition(args.next);
+    args.record.state = args.state.current;
+    await this.saveRun(args.record);
+    await args.afterSave?.();
+    await this.eventLog.append(args.record.runId, { type: 'state_transition', from, to: args.next });
   }
 
   private async writeReviewBundle(args: {
@@ -349,41 +376,74 @@ export class RuntimeController {
         runId: validatedIntent.runId,
         state: 'created',
         validationOverrideRequested: validatedIntent.type === 'edit_files' ? validatedIntent.validationOverride : undefined,
-        startedAt: new Date().toISOString(),
+        startedAt: utcNowIso(),
       };
       await this.saveRun(record);
       await this.eventLog.append(validatedIntent.runId, { type: 'run_created', intentType: validatedIntent.type, intentId: validatedIntent.intentId });
       await this.eventLog.append(validatedIntent.runId, { type: 'intent_validated', intentId: validatedIntent.intentId, intentType: validatedIntent.type });
 
       const transition = async (next: RunState) => {
-        const from = state.current;
-        state.transitionOrThrow(next);
-        record.state = state.current;
-        await this.saveRun(record);
-        await this.eventLog.append(validatedIntent.runId, { type: 'state_transition', from, to: next });
+        await this.transitionRunState({ record, state, next });
       };
 
       await transition('planning');
       await transition('awaiting_action');
       await transition('executing');
+      await this.eventLog.append(validatedIntent.runId, {
+        type: 'execution_started',
+        actor: this.options.actor,
+        intentId: validatedIntent.intentId,
+        intentType: validatedIntent.type,
+      });
 
       const ctx: ExecutionContext = { runId: validatedIntent.runId, actor: this.options.actor, worktreeDir };
       const authority = new ExecutionAuthority(ctx, this.artifacts, this.eventLog, this.options.runtimeGateway);
       const dispatcher = this.buildDispatcher(authority);
-      const result = await dispatcher.dispatch(validatedIntent);
+      let result: IntentResult;
+      try {
+        result = await dispatcher.dispatch(validatedIntent);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        result = {
+          ok: false,
+          intentType: validatedIntent.type,
+          error: message,
+          errorDetail: {
+            code: 'execution_failed',
+            message,
+            retriable: false,
+          },
+        };
+      }
       record.result = result;
       await this.saveRun(record);
+      await this.eventLog.append(validatedIntent.runId, {
+        type: 'execution_finished',
+        actor: this.options.actor,
+        intentId: validatedIntent.intentId,
+        intentType: validatedIntent.type,
+        ok: result.ok,
+        artifactIds: result.artifactIds ?? [],
+        error: result.error,
+        errorDetail: result.errorDetail,
+      });
 
       if (!result.ok) {
         await transition('failed');
+        await this.updateNextAction(record, validatedIntent.type);
         await this.eventLog.append(validatedIntent.runId, { type: 'run_failed', reason: result.error ?? 'intent execution failed' });
         return record;
       }
 
-      if (validatedIntent.type !== 'edit_files') {
+      const nextAction = selectNextAction({ currentState: state.current, intentType: validatedIntent.type });
+      if (nextAction === 'complete_run') {
         await transition('completed');
+        await this.updateNextAction(record, validatedIntent.type);
         await this.eventLog.append(validatedIntent.runId, { type: 'run_completed', mode: 'read_only' });
         return record;
+      }
+      if (validatedIntent.type !== 'edit_files') {
+        throw new RunConflictError('unexpected_next_action', `unexpected next action ${nextAction} for ${validatedIntent.type}`);
       }
 
       const patchArtifactId = result.artifactIds?.[0];
@@ -436,6 +496,7 @@ export class RuntimeController {
       }
 
       await transition('validated');
+      await this.updateNextAction(record, validatedIntent.type);
       return record;
     });
   }
@@ -456,16 +517,19 @@ export class RuntimeController {
         throw new RunConflictError('approval_not_pending', `run ${runId} is not awaiting approval`);
       }
 
-      const from = state.current;
       if (state.current === 'awaiting_approval') {
-        state.transitionOrThrow('validated');
+        await this.transitionRunState({ record, state, next: 'validated' });
       }
-      state.transitionOrThrow('approved');
-      record.state = state.current;
-      record.approval = { approved: true, actor: approvalDecision.actor, at: new Date().toISOString(), reason: approvalDecision.reason };
-      await this.saveRun(record);
-      await this.eventLog.append(runId, { type: 'approval_recorded', approved: true, actor: approvalDecision.actor, reason: approvalDecision.reason });
-      await this.eventLog.append(runId, { type: 'state_transition', from, to: 'approved' });
+      record.approval = { approved: true, actor: approvalDecision.actor, at: utcNowIso(), reason: approvalDecision.reason };
+      await this.transitionRunState({
+        record,
+        state,
+        next: 'approved',
+        afterSave: async () => {
+          await this.eventLog.append(runId, { type: 'approval_recorded', approved: true, actor: approvalDecision.actor, reason: approvalDecision.reason });
+        },
+      });
+      await this.updateNextAction(record, record.result?.intentType ?? 'edit_files');
       return record;
     });
   }
@@ -486,16 +550,19 @@ export class RuntimeController {
         throw new RunConflictError('rejection_not_pending', `run ${runId} is not awaiting approval`);
       }
 
-      const from = state.current;
       if (state.current === 'awaiting_approval') {
-        state.transitionOrThrow('validated');
+        await this.transitionRunState({ record, state, next: 'validated' });
       }
-      state.transitionOrThrow('rejected');
-      record.state = state.current;
-      record.approval = { approved: false, actor: decision.actor, at: new Date().toISOString(), reason: decision.reason };
-      await this.saveRun(record);
-      await this.eventLog.append(runId, { type: 'approval_recorded', approved: false, actor: decision.actor, reason: decision.reason });
-      await this.eventLog.append(runId, { type: 'state_transition', from, to: 'rejected' });
+      record.approval = { approved: false, actor: decision.actor, at: utcNowIso(), reason: decision.reason };
+      await this.transitionRunState({
+        record,
+        state,
+        next: 'rejected',
+        afterSave: async () => {
+          await this.eventLog.append(runId, { type: 'approval_recorded', approved: false, actor: decision.actor, reason: decision.reason });
+        },
+      });
+      await this.updateNextAction(record, record.result?.intentType ?? 'edit_files');
       return record;
     });
   }
@@ -519,15 +586,21 @@ export class RuntimeController {
         throw new RunConflictError('missing_patch_artifact', `patch artifact not found: ${record.patchArtifactId}`);
       }
       const patch = JSON.parse(await this.artifacts.read(artifact)) as PatchArtifact;
+      if (!record.approval?.approved) {
+        throw new RunConflictError('apply_requires_approval_context', `run ${runId} is missing approved context`);
+      }
       await this.eventLog.append(runId, { type: 'artifact_apply_requested', artifactId: artifact.id, actor: this.options.actor });
-      await applyPatchArtifact({ artifact: patch, worktreeDir: this.worktreeFor(runId), actor: this.options.actor, eventLog: this.eventLog });
+      await applyPatchArtifact({
+        artifact: patch,
+        worktreeDir: this.worktreeFor(runId),
+        actor: this.options.actor,
+        eventLog: this.eventLog,
+        approval: record.approval,
+      });
 
       const state = new RunStateMachine(record.state);
-      const from = state.current;
-      state.transitionOrThrow('applied');
-      record.state = state.current;
-      await this.saveRun(record);
-      await this.eventLog.append(runId, { type: 'state_transition', from, to: 'applied' });
+      await this.transitionRunState({ record, state, next: 'applied' });
+      await this.updateNextAction(record, record.result?.intentType ?? 'edit_files');
       return record;
     });
   }
@@ -544,27 +617,28 @@ export class RuntimeController {
       }
 
       const state = new RunStateMachine(record.state);
-      const from = state.current;
-      state.transitionOrThrow('completed');
+      state.assertTransition('completed');
       record.state = state.current;
 
       const events = await this.eventLog.readAll(runId);
+      const artifacts = await this.artifacts.list(runId);
       const replay = replayRun(events);
       const summary = buildRunSummary({
         runId,
         finalState: record.state,
         validation: record.validation,
         approval: record.approval,
-        appliedArtifactIds: record.patchArtifactId ? [record.patchArtifactId] : [],
-        reviewArtifactIds: record.reviewBundleArtifactId ? [record.reviewBundleArtifactId] : [],
+        appliedArtifactIds: artifacts.filter((artifact) => artifact.kind === 'patch').map((artifact) => artifact.id),
+        reviewArtifactIds: artifacts.filter((artifact) => artifact.kind === 'review-bundle').map((artifact) => artifact.id),
         commandCount: events.filter((event) => event.type === 'command_executed').length,
         modelCallCount: events.filter((event) => event.type === 'model_called').length,
-        timings: { startedAt: record.startedAt, completedAt: new Date().toISOString() },
+        timings: { startedAt: record.startedAt, completedAt: utcNowIso() },
         notes: notes ?? `replay outcome=${replay.outcome} state=${replay.currentState}`,
       });
       await this.artifacts.writeJson(runId, 'summary', summary, { finalState: record.state });
+      record.nextAction = selectNextAction({ currentState: record.state, intentType: record.result?.intentType ?? 'edit_files' });
       await this.saveRun(record);
-      await this.eventLog.append(runId, { type: 'state_transition', from, to: 'completed' });
+      await this.eventLog.append(runId, { type: 'state_transition', from: 'applied', to: 'completed' });
       await this.eventLog.append(runId, { type: 'run_completed', notes });
       return record;
     });

@@ -3,6 +3,8 @@
 
 The supported local run-api path starts from the repo root and assumes the stack was prepared with `./scripts/setup-local-stack.sh`.
 
+This is a local quickstart for the current file-backed HTTP lifecycle. It is not a production deployment guide.
+
 ## Start and verify
 
 ```bash
@@ -21,7 +23,17 @@ npm run verify
 node apps/shell/bin/agent-stack-run.mjs prompt "list available local runtime capabilities"
 ```
 
-Read-only runs complete immediately and record model-call artifacts and events.
+Read-only runs complete immediately and still record lifecycle events. Artifact types depend on the intent that the shell emits.
+
+## HTTP endpoints
+
+- `GET /healthz` returns local service health and runtime-gateway target info.
+- `GET /v1/runs` lists persisted runs.
+- `POST /v1/runs` creates a run from an intent payload.
+- `GET /v1/runs/<runId>` returns the current run snapshot, including reconciled run state and replay data.
+- `GET /v1/runs/<runId>/events` returns the stored event stream.
+- `GET /v1/runs/<runId>/artifacts` returns the artifact manifest.
+- `POST /v1/runs/<runId>/approve`, `/reject`, `/apply`, and `/complete` advance the bounded mutating lifecycle explicitly.
 
 ## Inspecting a run
 
@@ -43,5 +55,7 @@ The snapshot includes the per-run worktree path under `workspace/run-<runId>/`.
 5. Complete the run to write the summary artifact.
 
 Mutating runs fail closed if no executable validation path exists, unless the request records an explicit `validationOverride`.
+
+Apply now also requires explicit approved context at the write boundary.
 
 For coverage reporting on the Node/TS side of this path, run `npm run test:coverage`. That report excludes the Python runtime-gateway files.

@@ -1,6 +1,7 @@
 import { mkdir, appendFile, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { RunCorruptionError } from '../errors/run-errors.js';
+import { utcNowIso } from '../time.js';
 import type { AgentEvent, AgentEventType } from './event-types.js';
 
 export const EVENT_SCHEMA_VERSION = 1 as const;
@@ -15,7 +16,7 @@ export class EventLog {
   async appendTyped(event: Omit<AgentEvent, 'timestamp' | 'schemaVersion'>): Promise<AgentEvent> {
     const record = {
       ...event,
-      timestamp: new Date().toISOString(),
+      timestamp: utcNowIso(),
       schemaVersion: EVENT_SCHEMA_VERSION,
     } as AgentEvent;
     const path = this.pathFor(record.runId);
